@@ -1,0 +1,39 @@
+<view class="page">
+  <view class="filter">
+    <text class="filter-label">所属地区</text>
+    <view class="picker-value">{{regionText || '未绑定团队'}}</view>
+  </view>
+
+  <view class="list" wx:if="{{tasks.length}}">
+    <view
+      class="task-card"
+      wx:for="{{tasks}}"
+      wx:key="id"
+      data-id="{{item.id}}"
+      bindtap="goWords"
+    >
+      <view class="task-name">
+        <text class="demo-tag" wx:if="{{item.is_demo}}">演示</text>{{item.name}}
+      </view>
+      <view class="task-desc" wx:if="{{item.description}}">{{item.description}}</view>
+      <view class="task-meta">
+        需录 {{item.required_audio_count}} 条 · 词条 {{item.word_count}} 条
+      </view>
+      <view class="task-progress">
+        <progress
+          class="task-bar"
+          percent="{{item.bar_percent}}"
+          stroke-width="6"
+          activeColor="#2b6cb0"
+          backgroundColor="#e5e8ee"
+        />
+        <text class="task-progress-text">已录 {{item.recorded_count}} / {{item.required_audio_count}} 条<block wx:if="{{item.rejected_count}}"> · 需重录 {{item.rejected_count}}</block></text>
+      </view>
+    </view>
+  </view>
+
+  <view class="empty" wx:elif="{{!loading}}">
+    {{regionText ? '暂无已发布任务' : '暂无任务 · 加入团队后可见本地区任务'}}
+  </view>
+  <view class="loading" wx:else>加载中…</view>
+</view>

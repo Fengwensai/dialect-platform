@@ -1,0 +1,91 @@
+.page {
+  padding: 32rpx;
+}
+
+.filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 20rpx 28rpx;
+  margin-bottom: 24rpx;
+}
+
+.filter-label {
+  font-size: 28rpx;
+  color: #606266;
+}
+
+.picker-value {
+  font-size: 28rpx;
+  color: #2b6cb0;
+  padding-right: 8rpx;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+}
+
+.task-card {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 28rpx;
+}
+
+.task-name {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #303133;
+}
+
+.demo-tag {
+  display: inline-block;
+  font-size: 20rpx;
+  font-weight: 400;
+  color: #b26a00;
+  background: #fdf0d9;
+  border: 1rpx solid #f5c97a;
+  border-radius: 8rpx;
+  padding: 2rpx 10rpx;
+  margin-right: 10rpx;
+  vertical-align: 2rpx;
+}
+
+.task-desc {
+  font-size: 24rpx;
+  color: #909399;
+  margin-top: 8rpx;
+}
+
+.task-meta {
+  font-size: 26rpx;
+  color: #606266;
+  margin-top: 16rpx;
+}
+
+.task-progress {
+  margin-top: 20rpx;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.task-bar {
+  flex: 1;
+}
+
+.task-progress-text {
+  font-size: 24rpx;
+  color: #909399;
+}
+
+.empty,
+.loading {
+  text-align: center;
+  color: #909399;
+  padding: 80rpx 0;
+  font-size: 28rpx;
+}

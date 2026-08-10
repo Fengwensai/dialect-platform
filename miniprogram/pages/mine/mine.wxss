@@ -1,0 +1,173 @@
+.page {
+  padding: 32rpx;
+}
+
+.user-card {
+  background: linear-gradient(135deg, #2b6cb0, #4299e1);
+  border-radius: 20rpx;
+  padding: 40rpx 32rpx;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 2rpx 12rpx rgba(45, 55, 72, 0.06);
+  margin-bottom: 32rpx;
+}
+
+.user-card-hover {
+  opacity: 0.85;
+}
+
+.avatar {
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: 50%;
+  border: 3rpx solid rgba(255, 255, 255, 0.7);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 52rpx;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.user-info {
+  flex: 1;
+  margin-left: 28rpx;
+  min-width: 0;
+}
+
+.user-name {
+  color: #fff;
+  font-size: 36rpx;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.user-line {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.85);
+  margin-top: 10rpx;
+}
+
+.edit-badge {
+  flex-shrink: 0;
+  margin-left: 16rpx;
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999rpx;
+  padding: 8rpx 20rpx;
+}
+
+.card {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 28rpx;
+  margin-bottom: 32rpx;
+  box-shadow: 0 2rpx 12rpx rgba(45, 55, 72, 0.06);
+}
+
+.section-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 8rpx;
+}
+
+/* —— 常用功能卡片 —— */
+.func-cell {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 4rpx;
+  border-bottom: 1rpx solid #f0f1f3;
+}
+
+.func-cell:last-of-type {
+  border-bottom: none;
+}
+
+.func-icon {
+  width: 68rpx;
+  height: 68rpx;
+  border-radius: 14rpx;
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.func-icon-queue {
+  background: #2b6cb0;
+}
+
+.func-icon-upload {
+  background: #1f9d55;
+}
+
+.func-icon-review {
+  background: #dd6b20;
+}
+
+.func-icon-export {
+  background: #805ad5;
+}
+
+.func-icon-help {
+  background: #909399;
+}
+
+.func-info {
+  flex: 1;
+  margin-left: 24rpx;
+  min-width: 0;
+}
+
+.func-title {
+  font-size: 30rpx;
+  color: #303133;
+  font-weight: 500;
+}
+
+.func-sub {
+  font-size: 24rpx;
+  color: #909399;
+  margin-top: 6rpx;
+}
+
+.func-arrow {
+  font-size: 40rpx;
+  color: #c0c4cc;
+  margin-left: 16rpx;
+}
+
+.upload-bar {
+  padding: 20rpx 4rpx 8rpx;
+}
+
+.upload-text {
+  font-size: 22rpx;
+  color: #909399;
+  margin-top: 8rpx;
+  text-align: center;
+}
+
+.logout-wrap {
+  margin-top: 8rpx;
+}
+
+.logout-btn {
+  font-size: 28rpx;
+  border-radius: 12rpx;
+  background: #fff;
+  color: #e53e3e;
+  border: 1rpx solid #e53e3e;
+}

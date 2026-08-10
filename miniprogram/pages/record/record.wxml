@@ -1,0 +1,94 @@
+<view class="page">
+  <!-- ① 选任务/词条模式（首页进入） -->
+  <block wx:if="{{pickMode}}">
+    <view class="card pick-card">
+      <view class="section-title">选择任务</view>
+      <view wx:if="{{taskOptions.length}}" class="pick-list">
+        <view
+          class="pick-item {{taskIndex === index ? 'on' : ''}}"
+          wx:for="{{taskOptions}}"
+          wx:key="id"
+          data-index="{{index}}"
+          bindtap="onPickTask"
+        >
+          <view class="pick-main">
+            <view class="pick-name">
+              <text class="demo-tag" wx:if="{{item.is_demo}}">演示</text>{{item.name}}
+            </view>
+            <view class="pick-meta">
+              词条 {{item.word_count}}<text wx:if="{{item.rejected_count}}"> · 需重录 {{item.rejected_count}}</text>
+            </view>
+          </view>
+          <view class="pick-arrow">{{taskIndex === index ? '✓' : '›'}}</view>
+        </view>
+      </view>
+      <view wx:else class="pick-empty">{{taskLoading ? '加载中…' : '暂无可用任务（加入团队后可见本地区任务）'}}</view>
+    </view>
+
+    <view class="card pick-card" wx:if="{{wordOptions.length}}">
+      <view class="section-title">选择词条</view>
+      <view class="pick-list">
+        <view
+          class="pick-item"
+          wx:for="{{wordOptions}}"
+          wx:key="word_id"
+          data-index="{{index}}"
+          bindtap="onPickWord"
+        >
+          <view class="pick-main">
+            <view class="pick-name">{{item.content}}</view>
+            <view class="pick-phon" wx:if="{{item.pronunciation_hint}}">{{item.pronunciation_hint}}</view>
+          </view>
+          <view class="chip chip-{{item.chip}}">{{item.chipText}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="pick-tip" wx:if="{{wordOptions.length}}">选好词条后自动进入录音</view>
+  </block>
+
+  <!-- ② 录音模式 -->
+  <block wx:else>
+    <view class="card word-info">
+      <view class="word-info-content">{{content}}</view>
+      <view class="word-info-phon" wx:if="{{pronunciation_hint}}">{{pronunciation_hint}}</view>
+      <view class="word-info-example" wx:if="{{example_sentence}}">例句：{{example_sentence}}</view>
+      <view class="word-info-switch" bindtap="enterPick">换词条</view>
+    </view>
+
+    <view class="recorder-box">
+      <view class="status-chip state-{{state}}">
+        {{state === 'idle' ? '待录音' : (state === 'recording' ? '录音中' : '已录制')}}
+      </view>
+      <view class="timer">{{display}}</view>
+      <view class="format-tip">PCM 16kHz · 单声道 · 16bit · 最长 60s</view>
+
+      <block wx:if="{{state === 'idle'}}">
+        <button class="btn-primary rec-btn" bindtap="start">开始录音</button>
+      </block>
+      <block wx:elif="{{state === 'recording'}}">
+        <button class="btn-danger rec-btn" bindtap="stop">停止</button>
+      </block>
+      <block wx:else>
+        <view class="row">
+          <button class="btn-ghost small" bindtap="play">试听</button>
+          <button class="btn-ghost small" bindtap="retry">重录</button>
+          <button class="btn-primary small" bindtap="save" disabled="{{saved}}">
+            {{saved ? '已保存' : '保存入队'}}
+          </button>
+        </view>
+      </block>
+    </view>
+
+    <view class="hint" wx:if="{{state === 'recording'}}">
+      录音中… 请用您最熟悉的家乡话朗读，不要用普通话。到 60 秒将自动停止。
+    </view>
+    <view class="hint" wx:elif="{{state === 'recorded'}}">
+      时长 {{display}}<block wx:if="{{fileSizeText}}"> · 约 {{fileSizeText}}</block>。
+      先试听，满意后再「保存入队」；不满意点「重录」。
+    </view>
+  </block>
+
+  <!-- 隐私授权弹窗（麦克风录音触发） -->
+  <privacy-popup />
+</view>

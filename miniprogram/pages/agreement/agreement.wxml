@@ -1,0 +1,11 @@
+<view class="page">
+  <block wx:if="{{loading}}">
+    <view class="empty-tip">加载中…</view>
+  </block>
+  <scroll-view class="doc" scroll-y wx:else>
+    <view class="doc-title">{{title}}</view>
+    <view class="doc-version">版本号：{{version}}</view>
+    <text class="doc-content" user-select>{{content}}</text>
+    <view class="doc-footer">—— 全文完 ——</view>
+  </scroll-view>
+</view>

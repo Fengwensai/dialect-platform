@@ -1,0 +1,50 @@
+.page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  background: #f5f6f7;
+}
+
+.empty-tip {
+  padding-top: 240rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #909399;
+}
+
+.doc {
+  height: 100vh;
+  box-sizing: border-box;
+  padding: 40rpx 48rpx 80rpx;
+  background: #fff;
+}
+
+.doc-title {
+  font-size: 38rpx;
+  font-weight: 700;
+  color: #303133;
+  text-align: center;
+}
+
+.doc-version {
+  margin-top: 12rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #909399;
+}
+
+.doc-content {
+  display: block;
+  margin-top: 32rpx;
+  font-size: 28rpx;
+  color: #303133;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.doc-footer {
+  margin-top: 48rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #a0aec0;
+}

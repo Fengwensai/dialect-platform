@@ -1,0 +1,878 @@
+"""小程序端接口：录音上传（发音人端）。
+
+本期过渡方案：不接微信登录，按 device_id（小程序本地生成的稳定 ID）识别发音人，
+speakers.openid 预留用于后续 wx.login 换 openid。上传接口暂不要求 Bearer token。
+"""
+import csv
+import io
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import quote
+from uuid import uuid4
+
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+)
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from ..core.agreements import (
+    GUARD_DETAIL,
+    pending_agreement_types,
+    require_agreements_accepted,
+)
+from ..core.config import settings
+from ..core.deps import get_current_speaker, get_current_speaker_optional
+from ..core.security import create_access_token
+from ..db import get_db
+from ..models.agreement import AGREEMENT_TYPES, Agreement, SpeakerAgreement
+from ..models.recording import Recording
+from ..models.region import Region
+from ..models.speaker import Speaker
+from ..models.task import TaskBatch, TaskBatchItem
+from ..models.team_code import TeamCode
+from ..models.word import WordLibrary
+from ..schemas.agreement import AgreementAcceptRequest, MpAcceptOut, MpAgreementOut
+from ..schemas.mp import (
+    LoginRequest,
+    MpDurationStats,
+    MpOverallProgress,
+    MpProgressOut,
+    MpRegion,
+    MpTaskOut,
+    MpTaskSummary,
+    MpToken,
+    MpWordOut,
+    ProfileUpdateRequest,
+    RecordingOut,
+    SpeakerOut,
+    TeamJoinRequest,
+)
+from ..services import rate_limit, storage
+from ..services.content_security import check_text, fire_media_check
+from ..services.wechat import code_to_openid
+
+router = APIRouter(prefix="/api/mp", tags=["mp"])
+
+ALLOWED_EXT = {".wav", ".mp3", ".m4a", ".aac"}
+ALLOWED_AVATAR_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2MB
+
+GENDERS = {"male", "female", "other"}
+AGE_BRACKETS = {"under18", "age18_30", "age31_45", "age46_60", "over60"}
+
+
+def _validate_profile(gender: str | None, age_bracket: str | None) -> None:
+    """画像取值校验：空串一律视为未提供（登录/上传不因此 422）；非法值 422。"""
+    if gender is not None and gender != "" and gender not in GENDERS:
+        raise HTTPException(status_code=422, detail="gender 仅支持 male/female/other")
+    if age_bracket is not None and age_bracket != "" and age_bracket not in AGE_BRACKETS:
+        raise HTTPException(
+            status_code=422,
+            detail="age_bracket 仅支持 under18/age18_30/age31_45/age46_60/over60",
+        )
+
+
+def _fill_profile_if_empty(
+    speaker: Speaker, gender: str | None, age_bracket: str | None
+) -> None:
+    """空不覆盖：仅当新值非空且发音人当前为空时写入。"""
+    if gender and not speaker.gender:
+        speaker.gender = gender
+    if age_bracket and not speaker.age_bracket:
+        speaker.age_bracket = age_bracket
+
+
+def _bound_or_400(speaker: Speaker) -> None:
+    """属地门禁：未绑定团队（无省+市）禁止领取/上传。"""
+    if not speaker.province_code or not speaker.city_code:
+        raise HTTPException(status_code=400, detail="请先加入团队（输入团队码）后再操作")
+
+
+def _region_matches(speaker: Speaker, task: TaskBatch) -> bool:
+    """任务属地 == 发音人属地（省+市严格相等；市级任务不投省级）。"""
+    return bool(
+        speaker.province_code
+        and speaker.city_code
+        and task.province_code == speaker.province_code
+        and task.city_code == speaker.city_code
+    )
+
+
+def _speaker_upsert(
+    db: Session,
+    device_id: str | None,
+    nickname: str | None,
+    gender: str | None = None,
+    age_bracket: str | None = None,
+) -> Speaker:
+    if not device_id:
+        device_id = "anon_" + uuid4().hex[:12]
+    speaker = db.query(Speaker).filter(Speaker.device_id == device_id).first()
+    if speaker is None:
+        speaker = Speaker(
+            device_id=device_id,
+            nickname=nickname or ("发音人" + device_id[-4:]),
+            gender=gender or None,
+            age_bracket=age_bracket or None,
+        )
+        db.add(speaker)
+        db.flush()
+    else:
+        if nickname and nickname != speaker.nickname:
+            speaker.nickname = nickname
+        _fill_profile_if_empty(speaker, gender, age_bracket)
+        db.flush()
+    return speaker
+
+
+@router.post("/recordings", response_model=RecordingOut)
+async def upload_recording(
+    background_tasks: BackgroundTasks,
+    task_id: int = Form(...),
+    word_id: int = Form(...),
+    duration: int = Form(0),
+    device_id: str | None = Form(None),
+    nickname: str | None = Form(None),
+    gender: str | None = Form(None),
+    age_bracket: str | None = Form(None),
+    file: UploadFile = File(...),
+    current_speaker: Speaker | None = Depends(get_current_speaker_optional),
+    db: Session = Depends(get_db),
+):
+    _validate_profile(gender, age_bracket)
+    # 1. 任务校验：存在且已发布
+    task = db.get(TaskBatch, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task.status != "published":
+        raise HTTPException(status_code=400, detail="任务未发布")
+
+    # 2. 词条归属校验：word 必须属于该任务
+    belongs = (
+        db.query(TaskBatchItem)
+        .filter(
+            TaskBatchItem.task_batch_id == task_id,
+            TaskBatchItem.word_id == word_id,
+        )
+        .first()
+    )
+    if belongs is None:
+        raise HTTPException(status_code=400, detail="词条不属于该任务")
+
+    # 3. 文件校验
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower() or ".wav"
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(status_code=400, detail="仅支持 .wav/.mp3/.m4a/.aac 音频")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="录音文件为空")
+    max_size = settings.MAX_RECORDING_SIZE_MB * 1024 * 1024
+    if len(content) > max_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"录音文件过大（限 {settings.MAX_RECORDING_SIZE_MB}MB）",
+        )
+
+    # 4. 发音人：优先登录身份（token），无 token 则按 device_id 建档（过渡方案）。
+    #    登录态上传会绕过 _speaker_upsert，故对解析后的 speaker 无条件补画像（空不覆盖）。
+    speaker = current_speaker or _speaker_upsert(
+        db, device_id, nickname, gender, age_bracket
+    )
+    _fill_profile_if_empty(speaker, gender, age_bracket)
+
+    # 4.5 协议门禁（阶段九）：登录身份未同意最新版协议禁止上传；匿名 device_id 路径不拦。
+    if current_speaker is not None and pending_agreement_types(db, current_speaker.id):
+        raise HTTPException(status_code=403, detail=GUARD_DETAIL)
+
+    # 5. 属地隔离（阶段八）：只能提交本团队绑定省市的已发布任务。
+    #    演示任务（is_demo）：仅未绑定团队可上传；已绑定用户一律 403，演示数据隔离。
+    if task.is_demo:
+        if speaker.province_code and speaker.city_code:
+            raise HTTPException(
+                status_code=403, detail="演示任务仅限未绑定团队的用户上传"
+            )
+    else:
+        _bound_or_400(speaker)
+        if not _region_matches(speaker, task):
+            raise HTTPException(status_code=403, detail="只能上传本团队所属地区的任务")
+
+    # 5.5 上传频率限流（按发音人）：窗口内超限 429，客户端稍后重试（小程序有本地队列缓冲）。
+    if not rate_limit.consume(
+        f"upload:sp:{speaker.id}",
+        settings.UPLOAD_RATE_LIMIT,
+        settings.UPLOAD_RATE_WINDOW_SECONDS,
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail=f"上传过于频繁，请稍后再试（{settings.UPLOAD_RATE_WINDOW_SECONDS // 60} 分钟内限 {settings.UPLOAD_RATE_LIMIT} 条）",
+        )
+
+    # 6. 覆盖策略：同 (task, word, speaker) 覆盖原行、保持 recording id 稳定
+    existing = (
+        db.query(Recording)
+        .filter(
+            Recording.task_id == task_id,
+            Recording.word_id == word_id,
+            Recording.speaker_id == speaker.id,
+        )
+        .first()
+    )
+    overwritten = existing is not None
+
+    # 7. 落盘（key 确定：同一任务/词条/发音人重复上传即覆盖；COS/本地由 storage 统一收口）
+    rel_key = f"recordings/{task_id}/{task_id}_{word_id}_{speaker.id}{ext}"
+    audio_url = f"/media/{rel_key}"
+    if existing and existing.audio_url != audio_url:
+        # 扩展名变化（如 .wav→.mp3）旧 key 不同，删旧避免孤儿对象
+        storage.delete_object(existing.audio_url)
+    storage.put_object(audio_url, content)
+
+    # 8. 入库（覆盖则更新原行，保持 recording id 稳定）
+    if existing:
+        existing.audio_url = audio_url
+        existing.audio_duration = duration
+        existing.file_size = len(content)
+        existing.status = "pending"
+        existing.review_note = None
+        existing.mandarin_transcript = None  # 新音频替换旧转写，需重填
+        existing.dialect_transcript = None
+        rec = existing
+    else:
+        rec = Recording(
+            task_id=task_id,
+            word_id=word_id,
+            speaker_id=speaker.id,
+            audio_url=audio_url,
+            audio_duration=duration,
+            file_size=len(content),
+            status="pending",
+        )
+        db.add(rec)
+    db.commit()
+    db.refresh(rec)
+
+    # 内容安全（fail-open）：配置了 COS 或公网域名才发起音频异步检测；未配置/失败不影响响应。
+    # media_url 由 fire_media_check 内生成（COS 预签名 / MEDIA_PUBLIC_BASE 拼接）。
+    if storage.enabled() or settings.MEDIA_PUBLIC_BASE:
+        background_tasks.add_task(fire_media_check, rec.id)
+
+    return RecordingOut(
+        recording_id=rec.id,
+        audio_url=audio_url,
+        status=rec.status,
+        speaker_id=speaker.id,
+        overwritten=overwritten,
+    )
+
+
+def _find_or_create_speaker(
+    db: Session,
+    openid: str,
+    device_id: str | None,
+    nickname: str | None,
+    avatar_url: str | None,
+    gender: str | None = None,
+    age_bracket: str | None = None,
+) -> Speaker:
+    """登录身份解析：优先 openid，其次 device_id（与既有录音统一），否则新建。
+
+    属地（省+市）不再从登录/上传回填，唯一来源是团队码绑定（POST /api/mp/team/join）。
+    """
+    speaker = db.query(Speaker).filter(Speaker.openid == openid).first()
+    if speaker is None and device_id:
+        speaker = db.query(Speaker).filter(Speaker.device_id == device_id).first()
+    if speaker is None:
+        speaker = Speaker(
+            openid=openid,
+            device_id=device_id or None,
+            nickname=nickname or ("发音人" + (device_id or openid)[-4:]),
+            avatar_url=avatar_url or None,
+            gender=gender or None,
+            age_bracket=age_bracket or None,
+        )
+        db.add(speaker)
+        db.flush()
+        return speaker
+
+    # 已存在：补绑身份，避免「登录一行 / device_id 上传一行」分叉
+    if device_id and not speaker.device_id:
+        dup = db.query(Speaker).filter(Speaker.device_id == device_id).first()
+        if dup is None or dup.id == speaker.id:
+            speaker.device_id = device_id
+    if not speaker.openid:
+        speaker.openid = openid
+    # 回填画像（空则不覆盖已有值）
+    if nickname and not speaker.nickname:
+        speaker.nickname = nickname
+    if avatar_url and not speaker.avatar_url:
+        speaker.avatar_url = avatar_url
+    _fill_profile_if_empty(speaker, gender, age_bracket)
+    return speaker
+
+
+@router.post("/login", response_model=MpToken)
+def mp_login(body: LoginRequest, db: Session = Depends(get_db)):
+    """微信登录：code 换 openid，首次登录自动建档，返回发音人 token。"""
+    _validate_profile(body.gender, body.age_bracket)
+    if body.nickname is not None and body.nickname.strip():
+        # 内容安全（fail-open）：命中 87014 才拒绝登录建档
+        if check_text(body.nickname.strip()).blocked:
+            raise HTTPException(status_code=400, detail="昵称包含违规内容")
+    openid = code_to_openid(body.code)
+    speaker = _find_or_create_speaker(
+        db,
+        openid,
+        body.device_id,
+        body.nickname,
+        body.avatar_url,
+        body.gender,
+        body.age_bracket,
+    )
+    db.commit()
+    db.refresh(speaker)
+
+    token = create_access_token(
+        {"speaker_id": speaker.id, "openid": speaker.openid or "", "role": "speaker"}
+    )
+    return MpToken(
+        access_token=token,
+        speaker=SpeakerOut.model_validate(speaker),
+        pending_agreements=pending_agreement_types(db, speaker.id),
+    )
+
+
+@router.get("/agreements", response_model=list[MpAgreementOut])
+def mp_agreements(db: Session = Depends(get_db)):
+    """三类协议最新版本（公开，登录前即可阅读）。"""
+    latest_ids = [
+        db.query(Agreement.id)
+        .filter(Agreement.type == t)
+        .order_by(Agreement.version.desc())
+        .limit(1)
+        .scalar()
+        for t in AGREEMENT_TYPES
+    ]
+    ids = [i for i in latest_ids if i is not None]
+    if not ids:
+        return []
+    rows = db.query(Agreement).filter(Agreement.id.in_(ids)).all()
+    by_type = {r.type: r for r in rows}
+    return [by_type[t] for t in AGREEMENT_TYPES if t in by_type]
+
+
+@router.post("/agreements/accept", response_model=MpAcceptOut)
+def mp_accept_agreements(
+    body: AgreementAcceptRequest,
+    db: Session = Depends(get_db),
+    speaker: Speaker = Depends(get_current_speaker),
+):
+    """提交协议同意（Bearer）。整体校验通过才写库；陈旧版本 409 不写库。
+
+    幂等：重复同意是 no-op；允许部分同意（未同意的下次再提交）。
+    """
+    if not body.accepted:
+        raise HTTPException(status_code=422, detail="accepted 不能为空")
+    # 1. 整体校验：type 合法 + (type, version) 是该 type 当前最新版本
+    latest = dict(
+        db.query(Agreement.type, func.max(Agreement.version)).group_by(Agreement.type).all()
+    )
+    for item in body.accepted:
+        if item.type not in AGREEMENT_TYPES:
+            raise HTTPException(status_code=422, detail=f"type 不合法：{item.type}")
+        if latest.get(item.type) != item.version:
+            raise HTTPException(
+                status_code=409, detail="协议已更新，请重新阅读最新版本"
+            )
+    # 2. 写库：先删后插（幂等），仅覆盖本次提交的类型
+    for item in body.accepted:
+        db.query(SpeakerAgreement).filter(
+            SpeakerAgreement.speaker_id == speaker.id,
+            SpeakerAgreement.type == item.type,
+        ).delete(synchronize_session=False)
+        db.add(
+            SpeakerAgreement(
+                speaker_id=speaker.id,
+                type=item.type,
+                version=item.version,
+            )
+        )
+    db.commit()
+    return MpAcceptOut(pending_agreements=pending_agreement_types(db, speaker.id))
+
+
+@router.get("/agreements/pending", response_model=MpAcceptOut)
+def mp_pending_agreements(
+    db: Session = Depends(get_db),
+    speaker: Speaker = Depends(get_current_speaker),
+):
+    """我尚未同意最新版的协议 type（冷启动/版本升级后由登录页轮询判定）。"""
+    return MpAcceptOut(pending_agreements=pending_agreement_types(db, speaker.id))
+
+
+@router.post("/profile", response_model=SpeakerOut)
+def update_my_profile(
+    body: ProfileUpdateRequest,
+    db: Session = Depends(get_db),
+    speaker: Speaker = Depends(require_agreements_accepted),
+):
+    """发音人自助更新资料：明确意图直接覆盖；空串清空；null 不改（nickname 非空才改，昵称不可为空）。"""
+    _validate_profile(body.gender, body.age_bracket)
+    if body.gender is not None:
+        speaker.gender = body.gender or None
+    if body.age_bracket is not None:
+        speaker.age_bracket = body.age_bracket or None
+    if body.nickname is not None and body.nickname.strip():
+        # 内容安全（fail-open）：微信不可达/非违规时放行，命中 87014 才拒绝
+        if check_text(body.nickname.strip()).blocked:
+            raise HTTPException(status_code=400, detail="昵称包含违规内容")
+        speaker.nickname = body.nickname.strip()
+    if body.avatar_url is not None:
+        speaker.avatar_url = body.avatar_url or None
+    # 属地（省/市）锁定：由团队码绑定决定，此处不改
+    db.commit()
+    db.refresh(speaker)
+    return SpeakerOut.model_validate(speaker)
+
+
+@router.post("/team/join", response_model=SpeakerOut)
+def team_join(
+    body: TeamJoinRequest,
+    db: Session = Depends(get_db),
+    speaker: Speaker = Depends(require_agreements_accepted),
+):
+    """加入团队：凭团队码绑定属地（省+市），绑定后锁定不可自改。
+
+    一码一区（后台建码时保证），同地区发音人绑到同一属地，天然隔离——
+    只能看到/录制本地区任务。
+    """
+    if speaker.team_code:
+        raise HTTPException(
+            status_code=400,
+            detail=f"已绑定团队（{speaker.team_code}），无法更换；如需修改请联系管理员",
+        )
+    code = (body.code or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=422, detail="团队码不能为空")
+    tc = db.query(TeamCode).filter(TeamCode.code == code).first()
+    if tc is None:
+        raise HTTPException(status_code=404, detail="团队码不存在或已停用")
+    speaker.province_code = tc.province_code
+    speaker.city_code = tc.city_code
+    speaker.team_code = tc.code
+    db.commit()
+    db.refresh(speaker)
+    return SpeakerOut.model_validate(speaker)
+
+
+def _is_image(ext: str, content: bytes) -> bool:
+    """按扩展名做魔数轻校验，防非图片文件伪装上传（Python 3.13 无 imghdr，手写判断）。"""
+    if ext == ".png":
+        return content.startswith(b"\x89PNG\r\n\x1a\n")
+    if ext in (".jpg", ".jpeg"):
+        return content.startswith(b"\xff\xd8\xff")
+    if ext == ".webp":
+        return content[:4] == b"RIFF" and content[8:12] == b"WEBP"
+    if ext == ".gif":
+        return content.startswith(b"GIF87a") or content.startswith(b"GIF89a")
+    return False
+
+
+@router.post("/avatar", response_model=SpeakerOut)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    speaker: Speaker = Depends(require_agreements_accepted),
+):
+    """上传头像：落盘 MEDIA_ROOT/avatars/ 并更新发音人头像 URL（跨设备持久）。
+
+    chooseAvatar 得到的本地临时路径对其它设备无效，小程序端先把图片传到这里，
+    换回 /media/avatars/... 服务器路径再存 speaker.avatar_url。
+    """
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower()
+    if ext not in ALLOWED_AVATAR_EXT:
+        raise HTTPException(status_code=400, detail="头像仅支持 .jpg/.jpeg/.png/.webp/.gif")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="头像文件为空")
+    if len(content) > MAX_AVATAR_SIZE:
+        raise HTTPException(status_code=400, detail="头像文件过大（限 2MB）")
+    if not _is_image(ext, content):
+        raise HTTPException(status_code=400, detail="文件不是有效图片")
+
+    # 旧头像为服务器文件时清理，避免孤儿文件
+    if speaker.avatar_url and speaker.avatar_url.startswith("/media/avatars/"):
+        old = Path(settings.MEDIA_ROOT) / speaker.avatar_url.removeprefix("/media/")
+        try:
+            if old.is_file():
+                old.unlink()
+        except OSError:
+            pass
+
+    avatars_dir = Path(settings.MEDIA_ROOT) / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+    save_name = f"{speaker.id}_{uuid4().hex[:8]}{ext}"
+    save_path = avatars_dir / save_name
+    save_path.write_bytes(content)
+
+    speaker.avatar_url = f"/media/avatars/{save_name}"
+    db.commit()
+    db.refresh(speaker)
+    return SpeakerOut.model_validate(speaker)
+
+
+@router.get("/tasks")
+def mp_tasks(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+    speaker: Speaker = Depends(require_agreements_accepted),
+):
+    """我的可用任务：强制按发音人属地（省+市）返回已发布任务，附词条数与我的已录进度。
+
+    阶段八隔离：服务端按 speaker 绑定属地过滤，忽略任何客户端区域参数；
+    未绑定团队返回空列表。
+    演示任务（is_demo，审核/体验用）：未绑定团队只返回演示任务；已绑定只返回本地区非演示任务。
+    """
+    unbound = not (speaker.province_code and speaker.city_code)
+    q = db.query(TaskBatch).filter(TaskBatch.status == "published")
+    if unbound:
+        q = q.filter(TaskBatch.is_demo.is_(True))
+    else:
+        q = q.filter(
+            TaskBatch.is_demo.is_(False),
+            TaskBatch.province_code == speaker.province_code,
+            TaskBatch.city_code == speaker.city_code,
+        )
+    total = q.count()
+    batches = (
+        q.order_by(TaskBatch.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    if batches:
+        ids = [b.id for b in batches]
+        word_counts = dict(
+            db.query(TaskBatchItem.task_batch_id, func.count(TaskBatchItem.id))
+            .filter(TaskBatchItem.task_batch_id.in_(ids))
+            .group_by(TaskBatchItem.task_batch_id)
+            .all()
+        )
+        rec_counts = dict(
+            db.query(Recording.task_id, func.count(func.distinct(Recording.word_id)))
+            .filter(
+                Recording.task_id.in_(ids),
+                Recording.speaker_id == speaker.id,
+            )
+            .group_by(Recording.task_id)
+            .all()
+        )
+        rej_counts = dict(
+            db.query(Recording.task_id, func.count(func.distinct(Recording.word_id)))
+            .filter(
+                Recording.task_id.in_(ids),
+                Recording.speaker_id == speaker.id,
+                Recording.status == "rejected",
+            )
+            .group_by(Recording.task_id)
+            .all()
+        )
+    else:
+        word_counts, rec_counts, rej_counts = {}, {}, {}
+
+    items = []
+    for b in batches:
+        out = MpTaskOut.model_validate(b)
+        out.word_count = word_counts.get(b.id, 0)
+        out.recorded_count = rec_counts.get(b.id, 0)
+        out.rejected_count = rej_counts.get(b.id, 0)
+        items.append(out)
+    return {"total": total, "items": items}
+
+
+@router.get("/tasks/{task_id}/words")
+def mp_task_words(
+    task_id: int,
+    db: Session = Depends(get_db),
+    speaker: Speaker = Depends(require_agreements_accepted),
+):
+    """任务词条列表：附当前发音人每条已录状态，供逐条朗读。
+
+    阶段八隔离：非本地区任务直接 403，防止通过任务 ID 越权查看/录制。
+    演示任务（is_demo）：仅未绑定团队的发音人可体验（审核/演示）；已绑定用户一律 403，
+    演示数据与真实用户完全隔离。
+    """
+    task = db.get(TaskBatch, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task.status != "published":
+        raise HTTPException(status_code=400, detail="任务未发布")
+    if task.is_demo:
+        if speaker.province_code and speaker.city_code:
+            raise HTTPException(status_code=403, detail="演示任务仅限未绑定团队的用户体验")
+    else:
+        _bound_or_400(speaker)
+        if not _region_matches(speaker, task):
+            raise HTTPException(status_code=403, detail="该任务不属于你所在地区")
+
+    items_q = (
+        db.query(TaskBatchItem)
+        .filter(TaskBatchItem.task_batch_id == task_id)
+        .all()
+    )
+    word_ids = [it.word_id for it in items_q]
+    words = (
+        db.query(WordLibrary)
+        .filter(WordLibrary.id.in_(word_ids), WordLibrary.status == "active")
+        .all()
+        if word_ids
+        else []
+    )
+    word_map = {w.id: w for w in words}
+
+    recs = (
+        db.query(Recording)
+        .filter(
+            Recording.task_id == task_id,
+            Recording.speaker_id == speaker.id,
+        )
+        .all()
+    )
+    rec_map = {r.word_id: r for r in recs}  # 同 (task,word,speaker) 覆盖后仅一条
+
+    out_items = []
+    for it in items_q:
+        w = word_map.get(it.word_id)
+        if w is None:
+            continue
+        r = rec_map.get(it.word_id)
+        out_items.append(
+            MpWordOut(
+                word_id=w.id,
+                code=w.code,
+                content=w.content,
+                example_sentence=w.example_sentence,
+                pronunciation_hint=w.pronunciation_hint,
+                remark=w.remark,
+                mandarin_transcript=r.mandarin_transcript if r else None,
+                dialect_transcript=r.dialect_transcript if r else None,
+                recorded=r is not None,
+                recording_id=r.id if r else None,
+                status=r.status if r else None,
+            )
+        )
+    return {
+        "task": MpTaskSummary.model_validate(task),
+        "total": len(out_items),
+        "items": out_items,
+    }
+
+
+@router.get("/recordings/progress", response_model=MpProgressOut)
+def mp_progress(
+    task_id: int,
+    db: Session = Depends(get_db),
+    speaker: Speaker = Depends(require_agreements_accepted),
+):
+    """我的录音进度：按状态统计当前发音人在该任务的录音。"""
+    task = db.get(TaskBatch, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    _bound_or_400(speaker)
+    if not _region_matches(speaker, task):
+        raise HTTPException(status_code=403, detail="该任务不属于你所在地区")
+    total = (
+        db.query(func.count())
+        .select_from(TaskBatchItem)
+        .filter(TaskBatchItem.task_batch_id == task_id)
+        .scalar()
+        or 0
+    )
+    rows = (
+        db.query(Recording.status, func.count())
+        .filter(
+            Recording.task_id == task_id,
+            Recording.speaker_id == speaker.id,
+        )
+        .group_by(Recording.status)
+        .all()
+    )
+    counts = {s: c for s, c in rows}
+    pending = counts.get("pending", 0)
+    approved = counts.get("approved", 0)
+    rejected = counts.get("rejected", 0)
+    return MpProgressOut(
+        task_id=task_id,
+        total_words=total,
+        recorded=pending + approved + rejected,
+        pending=pending,
+        approved=approved,
+        rejected=rejected,
+    )
+
+
+@router.get("/progress", response_model=MpOverallProgress)
+def mp_overall_progress(
+    db: Session = Depends(get_db),
+    speaker: Speaker = Depends(require_agreements_accepted),
+):
+    """我的总体录音进度：跨任务按状态汇总（首页展示）。"""
+    rows = (
+        db.query(Recording.status, func.count())
+        .filter(Recording.speaker_id == speaker.id)
+        .group_by(Recording.status)
+        .all()
+    )
+    counts = {s: c for s, c in rows}
+    pending = counts.get("pending", 0)
+    approved = counts.get("approved", 0)
+    rejected = counts.get("rejected", 0)
+    return MpOverallProgress(
+        recorded=pending + approved + rejected,
+        pending=pending,
+        approved=approved,
+        rejected=rejected,
+    )
+
+
+@router.get("/regions", response_model=list[MpRegion])
+def mp_regions(
+    parent_code: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """区划列表（公开）：不传 parent_code 返回省（level 1）；传省级代码返回其市。
+
+    阶段八：小程序用省+市两级解析发音人属地名（团队码绑定后展示用）。
+    """
+    if parent_code:
+        parent = db.get(Region, parent_code)
+        if parent is None:
+            raise HTTPException(status_code=404, detail="上级区划不存在")
+        return (
+            db.query(Region)
+            .filter(Region.parent_code == parent_code, Region.level == parent.level + 1)
+            .order_by(Region.code)
+            .all()
+        )
+    return db.query(Region).filter(Region.level == 1).order_by(Region.code).all()
+
+
+REC_STATUS_LABELS = {"pending": "待审核", "approved": "已通过", "rejected": "已驳回"}
+
+
+def _csv_response(rows: list[dict], columns: list[str], fname: str) -> Response:
+    """utf-8-sig CSV 下载响应（Excel 双击可直接打开中文）。
+
+    plain `filename` 用 ASCII 兜底（Starlette 以 latin-1 编码 header，中文文件名会炸），
+    中文名走 RFC 5987 `filename*=UTF-8''…`。
+    """
+    text = io.StringIO(newline="")
+    writer = csv.DictWriter(text, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    return Response(
+        content=text.getvalue().encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="durations_export.csv"; filename*=UTF-8\'\'{quote(fname)}'
+        },
+    )
+
+
+@router.get("/me/durations", response_model=MpDurationStats)
+def my_duration_stats(
+    db: Session = Depends(get_db),
+    speaker: Speaker = Depends(require_agreements_accepted),
+):
+    """我的录音时长统计（全部任务，按状态汇总，时长毫秒）。"""
+    rows = (
+        db.query(
+            Recording.status,
+            func.count(),
+            func.coalesce(func.sum(Recording.audio_duration), 0),
+        )
+        .filter(Recording.speaker_id == speaker.id)
+        .group_by(Recording.status)
+        .all()
+    )
+    stats = {st: {"cnt": c, "dur": d} for st, c, d in rows}
+
+    def pick(st: str) -> dict:
+        return stats.get(st, {"cnt": 0, "dur": 0})
+
+    pending = pick("pending")
+    approved = pick("approved")
+    rejected = pick("rejected")
+    total_cnt = pending["cnt"] + approved["cnt"] + rejected["cnt"]
+    total_dur = pending["dur"] + approved["dur"] + rejected["dur"]
+    return MpDurationStats(
+        total_count=total_cnt,
+        total_duration_ms=total_dur,
+        pending_count=pending["cnt"],
+        pending_duration_ms=pending["dur"],
+        approved_count=approved["cnt"],
+        approved_duration_ms=approved["dur"],
+        rejected_count=rejected["cnt"],
+        rejected_duration_ms=rejected["dur"],
+    )
+
+
+@router.get("/me/export")
+def my_duration_export(
+    db: Session = Depends(get_db),
+    speaker: Speaker = Depends(require_agreements_accepted),
+):
+    """导出我的录音时长明细 CSV（utf-8-sig，Excel 可直接打开）。"""
+    recs = (
+        db.query(Recording)
+        .filter(Recording.speaker_id == speaker.id)
+        .order_by(Recording.created_at.desc(), Recording.id.desc())
+        .all()
+    )
+    columns = [
+        "录音ID",
+        "任务",
+        "词条编码",
+        "词条内容",
+        "状态",
+        "时长_ms",
+        "文件大小_B",
+        "审核备注",
+        "审核时间",
+        "提交时间",
+        "音频路径",
+    ]
+    rows = []
+    for r in recs:
+        task = db.get(TaskBatch, r.task_id)
+        word = db.get(WordLibrary, r.word_id)
+        rows.append(
+            {
+                "录音ID": r.id,
+                "任务": task.name if task else f"任务#{r.task_id}",
+                "词条编码": word.code if word else "",
+                "词条内容": word.content if word else f"词条#{r.word_id}",
+                "状态": REC_STATUS_LABELS.get(r.status, r.status),
+                "时长_ms": r.audio_duration,
+                "文件大小_B": r.file_size,
+                "审核备注": r.review_note or "",
+                "审核时间": r.reviewed_at.isoformat() if r.reviewed_at else "",
+                "提交时间": r.created_at.isoformat() if r.created_at else "",
+                "音频路径": r.audio_url,
+            }
+        )
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return _csv_response(rows, columns, f"我的录音时长_{ts}.csv")

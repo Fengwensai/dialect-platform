@@ -1,0 +1,90 @@
+// 首页（录音台·精简版）：欢迎语 + 领取任务/开始录音两大入口，其余功能在「我的」页
+const speaker = require('../../utils/speaker')
+
+Page({
+  data: {
+    speakerName: '',
+    bound: false, // 是否已加入团队（绑定属地）
+    bindVisible: false, // 绑定团队弹窗
+    bindInputFocus: false,
+    teamCode: '',
+    binding: false // 绑定请求中
+  },
+
+  onShow() {
+    if (!speaker.isLoggedIn()) {
+      wx.reLaunch({ url: '/pages/login/login' })
+      return
+    }
+    this.refreshSpeaker()
+  },
+
+  refreshSpeaker() {
+    const sp = speaker.getSpeaker()
+    this.setData({
+      speakerName: (sp && sp.nickname) || '',
+      bound: speaker.isBound()
+    })
+  },
+
+  /** 首页未绑定门禁：横幅点「绑定团队」→ 弹自定义输入框 */
+  onBindTeam() {
+    if (this.data.binding) return
+    this.setData({ bindVisible: true, teamCode: '', bindInputFocus: false })
+  },
+
+  noop() {},
+
+  closeBind() {
+    if (this.data.binding) return
+    this.setData({ bindVisible: false })
+  },
+
+  onBindInputFocus() {
+    this.setData({ bindInputFocus: true })
+  },
+
+  onBindInputBlur() {
+    this.setData({ bindInputFocus: false })
+  },
+
+  onTeamCodeInput(e) {
+    // 团队码统一转大写，与后端存储一致
+    this.setData({ teamCode: (e.detail.value || '').toUpperCase() })
+  },
+
+  /** 弹窗内「绑定」：校验 → joinTeam → 刷新 */
+  doBind() {
+    if (this.data.binding) return
+    const code = (this.data.teamCode || '').trim()
+    if (!code) {
+      wx.showToast({ title: '请输入团队码', icon: 'none' })
+      return
+    }
+    this.setData({ binding: true })
+    speaker
+      .joinTeam(code)
+      .then(() => {
+        this.setData({ bindVisible: false, binding: false })
+        this.refreshSpeaker()
+        wx.showToast({ title: '绑定成功', icon: 'success' })
+      })
+      .catch((err) => {
+        this.setData({ binding: false })
+        // 错误信息较长（如「已绑定团队，无法更换」），用弹窗完整展示
+        wx.showModal({
+          title: '绑定失败',
+          content: (err && err.message) || '请检查团队码是否正确',
+          showCancel: false
+        })
+      })
+  },
+
+  goRecord() {
+    wx.navigateTo({ url: '/pages/record/record' })
+  },
+
+  goTasks() {
+    wx.navigateTo({ url: '/pages/tasks/tasks' })
+  }
+})

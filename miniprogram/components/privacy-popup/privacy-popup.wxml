@@ -1,0 +1,17 @@
+<!-- 隐私授权弹窗：微信隐私接口被触发时弹出，同意走官方按钮自动回调，拒绝手动 resolve -->
+<view wx:if="{{visible}}" class="privacy-mask" catchtouchmove="noop">
+  <view class="privacy-dialog">
+    <view class="privacy-title">{{contractName || '隐私保护提示'}}</view>
+    <view class="privacy-desc">
+      使用该功能需要读取你的以下信息，请阅读并同意
+      <text class="privacy-link" bindtap="onOpenContract">{{contractName || '《隐私保护指引》'}}</text>
+    </view>
+    <button
+      id="privacy-agree"
+      class="privacy-btn agree"
+      open-type="agreePrivacyAuthorization"
+      bindagreeprivacyauthorization="onAgree"
+    >同意并继续</button>
+    <button class="privacy-btn refuse" bindtap="onRefuse">暂不使用</button>
+  </view>
+</view>

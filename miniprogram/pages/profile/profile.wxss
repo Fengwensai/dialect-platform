@@ -1,0 +1,104 @@
+.page {
+  padding: 32rpx;
+}
+
+.card {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 28rpx;
+  box-shadow: 0 2rpx 12rpx rgba(45, 55, 72, 0.06);
+}
+
+/* —— 头像 —— */
+.avatar-row {
+  display: flex;
+  justify-content: center;
+  padding: 16rpx 0 32rpx;
+}
+
+.avatar-btn {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  line-height: 1;
+  width: 160rpx;
+}
+
+.avatar-btn::after {
+  border: none;
+}
+
+.avatar {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 50%;
+  border: 3rpx solid #e5e8ee;
+  box-sizing: border-box;
+  display: block;
+}
+
+.avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e8f0fe;
+  color: #2b6cb0;
+  font-size: 64rpx;
+  font-weight: 700;
+}
+
+.avatar-edit {
+  text-align: center;
+  font-size: 22rpx;
+  color: #909399;
+  margin-top: 12rpx;
+}
+
+/* —— 表单行 —— */
+.form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 4rpx;
+  border-bottom: 1rpx solid #f0f1f3;
+}
+
+.form-row:last-of-type {
+  border-bottom: none;
+}
+
+.form-label {
+  font-size: 28rpx;
+  color: #303133;
+  flex-shrink: 0;
+  width: 140rpx;
+}
+
+.form-input {
+  flex: 1;
+  text-align: right;
+  font-size: 28rpx;
+  color: #303133;
+}
+
+.input-placeholder {
+  color: #c0c4cc;
+}
+
+.picker-value {
+  font-size: 28rpx;
+  color: #2b6cb0;
+}
+
+.picker-value.placeholder {
+  color: #c0c4cc;
+}
+
+/* —— 保存 —— */
+.save-btn {
+  margin-top: 40rpx;
+  font-size: 30rpx;
+  border-radius: 12rpx;
+}

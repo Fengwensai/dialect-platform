@@ -1,0 +1,137 @@
+<view class="page">
+  <!-- 登录前 -->
+  <block wx:if="{{!authed}}">
+    <view class="brand">
+      <view class="brand-logo">方</view>
+      <view class="brand-title">方言采集录音</view>
+      <view class="brand-sub">用家乡话，留下乡音</view>
+    </view>
+
+    <view class="agree-card">
+      <view class="agree-title">登录即代表您已阅读并同意以下协议：</view>
+      <block wx:if="{{agreeLoading}}">
+        <view class="agree-status">协议加载中…</view>
+      </block>
+      <block wx:elif="{{agreeLoadError}}">
+        <view class="agree-status">协议加载失败</view>
+        <view class="agree-retry" bindtap="onReloadAgreements">点击重试</view>
+      </block>
+      <block wx:else>
+        <!-- 整行可点手动勾选：自定义勾选框，避免原生 checkbox 受控状态不同步 -->
+        <view
+          class="agree-row {{checked[item.type] ? 'agree-row-checked' : ''}}"
+          hover-class="agree-row-hover"
+          wx:for="{{agreements}}"
+          wx:key="type"
+          data-type="{{item.type}}"
+          bindtap="onRowTap"
+        >
+          <view class="agree-check {{checked[item.type] ? 'agree-check-on' : ''}}">
+            <text wx:if="{{checked[item.type]}}" class="agree-check-mark">✓</text>
+          </view>
+          <text class="agree-row-text" data-type="{{item.type}}" catchtap="onAgreementTap">{{item.title}}</text>
+        </view>
+      </block>
+    </view>
+
+    <button class="btn-primary login-btn" bindtap="onLogin" loading="{{loading}}" disabled="{{!allChecked || loading}}">
+      微信一键登录
+    </button>
+    <view class="login-tip" wx:if="{{!allChecked}}">请先勾选并阅读同意全部协议后登录</view>
+    <view class="login-tip" wx:else>登录后请完善资料：头像昵称、性别年龄段（均可跳过）</view>
+  </block>
+
+  <!-- 登录后：绑定团队码（必填）+ 完善资料（头像昵称、性别年龄段可选） -->
+  <block wx:else>
+    <view class="brand brand-compact">
+      <view class="brand-logo">方</view>
+      <view class="brand-title">加入团队</view>
+      <view class="brand-sub">填写团队码绑定所属地区，只能领取/录制该地区任务（其余资料可选）</view>
+    </view>
+
+    <view class="setup-card">
+      <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+        <image class="avatar" wx:if="{{avatarUrl}}" src="{{avatarUrl}}" mode="aspectFill" />
+        <view class="avatar avatar-placeholder" wx:else>点</view>
+        <view class="avatar-edit">点击选择头像</view>
+      </button>
+      <input
+        class="nickname-input"
+        type="nickname"
+        value="{{nickname}}"
+        placeholder="请输入昵称"
+        placeholder-class="nickname-placeholder"
+        bindinput="onNicknameInput"
+        bindfocus="onNicknameFocus"
+      />
+
+      <view class="profile-block">
+        <view class="profile-title">团队（必填）</view>
+        <view class="form-row">
+          <text class="form-label">团队码</text>
+          <input
+            class="team-code-input"
+            value="{{teamCode}}"
+            placeholder="请向管理员索取所在地区团队码"
+            placeholder-class="picker-placeholder"
+            bindinput="onTeamCodeInput"
+          />
+        </view>
+        <view class="profile-title">个人信息（用于方言研究统计）</view>
+        <view class="form-row">
+          <text class="form-label">性别</text>
+          <picker
+            mode="selector"
+            range="{{genderOptions}}"
+            value="{{genderIndex < 0 ? 0 : genderIndex}}"
+            bindchange="onGenderChange"
+          >
+            <view class="picker-value {{genderIndex < 0 ? 'picker-placeholder' : ''}}">
+              {{genderIndex >= 0 ? genderOptions[genderIndex] : '请选择'}}
+            </view>
+          </picker>
+        </view>
+        <view class="form-row">
+          <text class="form-label">年龄段</text>
+          <picker
+            mode="selector"
+            range="{{ageOptions}}"
+            value="{{ageIndex < 0 ? 0 : ageIndex}}"
+            bindchange="onAgeChange"
+          >
+            <view class="picker-value {{ageIndex < 0 ? 'picker-placeholder' : ''}}">
+              {{ageIndex >= 0 ? ageOptions[ageIndex] : '请选择'}}
+            </view>
+          </picker>
+        </view>
+      </view>
+
+      <button class="btn-primary save-btn" bindtap="saveProfile" disabled="{{saving}}">
+        {{saving ? '保存中…' : '保存并进入首页'}}
+      </button>
+      <button class="btn-ghost skip-btn" bindtap="skipProfile">暂不绑定，先进首页</button>
+    </view>
+  </block>
+
+  <!-- 协议确认弹窗（登录后有待确认协议 / 版本升级被 403 踢回） -->
+  <view class="bind-mask" wx:if="{{agreeVisible}}" bindtap="noop" catchtouchmove="noop">
+    <view class="agree-dialog" catchtap="noop">
+      <view class="bind-dialog-title">协议确认</view>
+      <view class="bind-dialog-desc">以下协议已更新，请重新阅读并同意最新版本：</view>
+      <view class="agree-dialog-list">
+        <view class="agree-dialog-item" wx:for="{{agreeItems}}" wx:key="type">
+          <text class="agree-dialog-name">{{item.title}}</text>
+          <text class="agree-dialog-version">v{{item.version}}</text>
+          <text class="agree-dialog-link" data-type="{{item.type}}" bindtap="onAgreeItemTap">查看</text>
+        </view>
+      </view>
+      <view class="bind-dialog-actions">
+        <button class="bind-dialog-btn cancel" bindtap="onAgreeCancel" disabled="{{agreeLoading}}">暂不同意</button>
+        <button class="bind-dialog-btn confirm" bindtap="onAgreeConfirm" loading="{{agreeLoading}}" disabled="{{agreeLoading}}">同意并继续</button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 隐私授权弹窗（chooseAvatar / type=nickname 触发） -->
+  <privacy-popup />
+</view>

@@ -1,0 +1,72 @@
+<view class="page">
+  <!-- 加载中 -->
+  <view wx:if="{{loading}}" class="center">
+    <view class="loading-text">加载中…</view>
+  </view>
+
+  <!-- 加载失败 -->
+  <view wx:elif="{{error}}" class="center">
+    <view class="error-text">{{error}}</view>
+    <button class="btn-primary retry-btn" bindtap="load" size="mini">重试</button>
+  </view>
+
+  <block wx:else>
+    <!-- 总体汇总 -->
+    <view class="card overview-card">
+      <view class="section-title">我的审核进度</view>
+      <view class="overview-row">
+        <view class="stat">
+          <view class="stat-num ok">{{overview.approved}}</view>
+          <view class="stat-label">已通过</view>
+        </view>
+        <view class="stat">
+          <view class="stat-num pending">{{overview.pending}}</view>
+          <view class="stat-label">待审核</view>
+        </view>
+        <view class="stat">
+          <view class="stat-num reject">{{overview.rejected}}</view>
+          <view class="stat-label">需重录</view>
+        </view>
+        <view class="stat">
+          <view class="stat-num">{{overview.recorded}}</view>
+          <view class="stat-label">已录</view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 空态 -->
+    <view wx:if="{{!tasks.length}}" class="card empty-card">
+      <view class="empty-text">还没有录音记录，去首页领取任务开始录音吧</view>
+    </view>
+
+    <!-- 按任务拆分 -->
+    <view
+      class="card task-card"
+      wx:for="{{tasks}}"
+      wx:key="taskId"
+      bindtap="goTask"
+      data-id="{{item.taskId}}"
+      hover-class="task-card-hover"
+    >
+      <view class="task-head">
+        <view class="task-name">{{item.taskName}}</view>
+        <view class="task-arrow">›</view>
+      </view>
+      <view class="task-progress">
+        <progress
+          class="task-bar"
+          percent="{{item.percent}}"
+          stroke-width="6"
+          activeColor="#2b6cb0"
+          backgroundColor="#e5e8ee"
+        />
+        <view class="task-progress-text">已录 {{item.recorded}} / {{item.wordCount}}</view>
+      </view>
+      <view class="task-chips">
+        <view class="chip chip-done">已通过 {{item.approved}}</view>
+        <view class="chip chip-pending">待审核 {{item.pending}}</view>
+        <view class="chip chip-reject" wx:if="{{item.rejected}}">需重录 {{item.rejected}}</view>
+      </view>
+    </view>
+  </block>
+</view>

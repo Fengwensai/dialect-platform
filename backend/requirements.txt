@@ -1,0 +1,12 @@
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.34,<1.0
+sqlalchemy>=2.0.36,<3.0
+psycopg[binary]>=3.2,<4.0
+pydantic>=2.9,<3.0
+pydantic-settings>=2.6,<3.0
+PyJWT>=2.9,<3.0
+bcrypt>=4.2,<5.0
+python-multipart>=0.0.12
+openpyxl>=3.1,<4.0
+requests>=2.31,<3.0
+cos-python-sdk-v5>=1.9.38,<2.0

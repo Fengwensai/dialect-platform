@@ -1,0 +1,158 @@
+.page {
+  padding: 32rpx;
+}
+
+.center {
+  padding: 160rpx 32rpx;
+  text-align: center;
+}
+
+.loading-text {
+  font-size: 28rpx;
+  color: #909399;
+}
+
+.error-text {
+  font-size: 28rpx;
+  color: #e53e3e;
+  margin-bottom: 24rpx;
+}
+
+.retry-btn {
+  font-size: 26rpx;
+  border-radius: 999rpx;
+  display: inline-block;
+}
+
+.card {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 28rpx;
+  margin-bottom: 24rpx;
+  box-shadow: 0 2rpx 12rpx rgba(45, 55, 72, 0.06);
+}
+
+.section-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 20rpx;
+}
+
+/* —— 总体汇总 —— */
+.overview-row {
+  display: flex;
+  align-items: center;
+}
+
+.stat {
+  flex: 1;
+  text-align: center;
+}
+
+.stat-num {
+  font-size: 48rpx;
+  font-weight: 700;
+  color: #303133;
+  line-height: 1.2;
+}
+
+.stat-num.ok {
+  color: #1f9d55;
+}
+
+.stat-num.pending {
+  color: #dd6b20;
+}
+
+.stat-num.reject {
+  color: #e53e3e;
+}
+
+.stat-label {
+  font-size: 24rpx;
+  color: #909399;
+  margin-top: 8rpx;
+}
+
+/* —— 空态 —— */
+.empty-card {
+  text-align: center;
+  padding: 64rpx 32rpx;
+}
+
+.empty-text {
+  font-size: 28rpx;
+  color: #909399;
+}
+
+/* —— 任务卡片 —— */
+.task-card {
+  padding-bottom: 20rpx;
+}
+
+.task-card-hover {
+  opacity: 0.7;
+}
+
+.task-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.task-name {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #303133;
+}
+
+.task-arrow {
+  font-size: 40rpx;
+  color: #c0c4cc;
+}
+
+.task-progress {
+  margin-top: 20rpx;
+  display: flex;
+  align-items: center;
+}
+
+.task-bar {
+  flex: 1;
+  margin-right: 16rpx;
+}
+
+.task-progress-text {
+  font-size: 24rpx;
+  color: #909399;
+  white-space: nowrap;
+}
+
+.task-chips {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 16rpx;
+  flex-wrap: wrap;
+}
+
+.chip {
+  font-size: 22rpx;
+  padding: 6rpx 18rpx;
+  border-radius: 999rpx;
+}
+
+.chip-done {
+  background: #e6f7ee;
+  color: #1f9d55;
+}
+
+.chip-pending {
+  background: #fef3e2;
+  color: #dd6b20;
+}
+
+.chip-reject {
+  background: #fdeaea;
+  color: #e53e3e;
+}

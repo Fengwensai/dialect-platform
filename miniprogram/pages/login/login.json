@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "登录",
+  "disableScroll": true,
+  "usingComponents": {
+    "privacy-popup": "/components/privacy-popup/privacy-popup"
+  }
+}

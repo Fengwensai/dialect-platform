@@ -1,0 +1,48 @@
+{
+  "pages": [
+    "pages/login/login",
+    "pages/index/index",
+    "pages/mine/mine",
+    "pages/record/record",
+    "pages/queue/queue",
+    "pages/tasks/tasks",
+    "pages/words/words",
+    "pages/progress/progress",
+    "pages/profile/profile",
+    "pages/agreement/agreement"
+  ],
+  "window": {
+    "navigationBarTitleText": "语音采集小程序",
+    "navigationBarBackgroundColor": "#2b6cb0",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f5f6f7"
+  },
+  "tabBar": {
+    "color": "#909399",
+    "selectedColor": "#2b6cb0",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页",
+        "iconPath": "images/tab/home.png",
+        "selectedIconPath": "images/tab/home-active.png"
+      },
+      {
+        "pagePath": "pages/mine/mine",
+        "text": "我的",
+        "iconPath": "images/tab/mine.png",
+        "selectedIconPath": "images/tab/mine-active.png"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "__usePrivacyCheck__": true,
+  "permission": {
+    "scope.record": {
+      "desc": "用于录制您的家乡话方言语音，仅供方言采集与研究使用"
+    }
+  }
+}

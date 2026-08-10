@@ -1,0 +1,64 @@
+<view class="page">
+  <!-- 普通模式工具栏 -->
+  <view class="toolbar" wx:if="{{!selectMode}}">
+    <button
+      class="btn-primary small"
+      bindtap="onUploadAll"
+      disabled="{{flushing || pendingCount === 0}}"
+    >
+      {{flushing ? '上传中…' : '一键上传 (' + pendingCount + ')'}}
+    </button>
+    <button class="btn-ghost small" bindtap="toggleSelectMode">批量删除</button>
+    <button class="btn-ghost small" bindtap="clearDone">清空已完成</button>
+  </view>
+
+  <!-- 选择模式工具栏 -->
+  <view class="toolbar select-toolbar" wx:else>
+    <button class="btn-ghost small" bindtap="toggleSelectMode">取消</button>
+    <button
+      class="btn-ghost small"
+      bindtap="{{selectedCount === items.length ? 'clearSelectAll' : 'selectAll'}}"
+    >
+      {{selectedCount === items.length ? '取消全选' : '全选'}}
+    </button>
+    <button class="btn-danger small" bindtap="removeSelected" disabled="{{selectedCount === 0}}">
+      删除所选 ({{selectedCount}})
+    </button>
+  </view>
+
+  <view class="list" wx:if="{{items.length}}">
+    <view
+      class="item {{selectMode && item.checked ? 'checked' : ''}}"
+      wx:for="{{items}}"
+      wx:key="id"
+      data-id="{{item.id}}"
+      bindtap="toggleItem"
+    >
+      <!-- 选择模式勾选标记 -->
+      <view class="check" wx:if="{{selectMode}}">
+        <view class="check-box {{item.checked ? 'on' : ''}}">
+          <text wx:if="{{item.checked}}">✓</text>
+        </view>
+      </view>
+
+      <view class="item-main">
+        <view class="item-content">{{item.content || '（无内容）'}}</view>
+        <view class="item-meta">
+          任务 {{item.taskId}} · 词条 {{item.wordId}} · {{item.durationText}}
+        </view>
+        <view class="item-error" wx:if="{{item.error}}">{{item.error}}</view>
+      </view>
+      <view class="item-side">
+        <view class="status status-{{item.status}}">{{item.statusText}}</view>
+        <!-- 选择模式下隐藏操作，避免与勾选冲突 -->
+        <view class="ops" wx:if="{{!selectMode}}">
+          <text class="op" data-id="{{item.id}}" catchtap="play">试听</text>
+          <text class="op" data-id="{{item.id}}" catchtap="retry">重录</text>
+          <text class="op op-danger" data-id="{{item.id}}" catchtap="remove">删除</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="empty" wx:else>队列为空，去录几条吧</view>
+</view>

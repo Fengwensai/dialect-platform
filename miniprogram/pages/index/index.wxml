@@ -1,0 +1,63 @@
+<view class="page">
+  <!-- 欢迎语：品牌 logo + 问候 -->
+  <view class="hero">
+    <view class="hero-logo">方</view>
+    <view class="hero-text">
+      <view class="hero-title">您好，{{speakerName || '发音人'}}</view>
+      <view class="hero-sub">用最熟悉的家乡话，朗读每一个词条</view>
+    </view>
+  </view>
+
+  <!-- 未绑定团队门禁：绑定后才能领取/录制本地区任务 -->
+  <view class="bind-banner" wx:if="{{!bound}}">
+    <view class="bind-text">尚未加入团队，绑定后才能领取本地区任务并录音</view>
+    <button class="bind-btn" bindtap="onBindTeam">绑定团队</button>
+  </view>
+
+  <!-- 领取任务：首页最醒目入口（用 view 避免 button 默认样式限制宽度） -->
+  <view class="task-btn" bindtap="goTasks" hover-class="task-btn-hover">
+    <view class="task-icon">📋</view>
+    <view class="task-btn-text">
+      <view class="task-btn-title">领取任务</view>
+      <view class="task-btn-sub">选择任务与词条，开始乡音录音</view>
+    </view>
+    <view class="task-btn-arrow">›</view>
+  </view>
+
+  <view class="more-tip">更多功能（录音队列 / 上传 / 审核）在「我的」</view>
+
+  <!-- 开始录音：右下角圆形悬浮按钮 -->
+  <view class="record-fab" bindtap="goRecord" hover-class="record-fab-hover" aria-label="开始录音">
+    <image class="record-fab-icon" src="/images/mic.png" mode="aspectFit" />
+  </view>
+
+  <!-- 绑定团队弹窗（自定义，替换 wx.showModal editable） -->
+  <view class="bind-mask" wx:if="{{bindVisible}}" bindtap="closeBind" catchtouchmove="noop">
+    <view class="bind-dialog" catchtap="noop">
+      <view class="bind-dialog-title">加入团队</view>
+      <view class="bind-dialog-desc">填写所在地区团队码（由平台分配）。绑定后只能领取、录制该地区的任务，且不可自行更换。</view>
+
+      <view class="bind-input-wrap {{bindInputFocus ? 'focus' : ''}}">
+        <input
+          class="bind-input"
+          type="text"
+          value="{{teamCode}}"
+          placeholder="请输入团队码，如 HB-SJZ"
+          placeholder-class="bind-input-placeholder"
+          maxlength="32"
+          confirm-type="done"
+          focus="{{bindVisible}}"
+          bindinput="onTeamCodeInput"
+          bindconfirm="doBind"
+          bindfocus="onBindInputFocus"
+          bindblur="onBindInputBlur"
+        />
+      </view>
+
+      <view class="bind-dialog-actions">
+        <button class="bind-dialog-btn cancel" bindtap="closeBind" disabled="{{binding}}">取消</button>
+        <button class="bind-dialog-btn confirm" bindtap="doBind" loading="{{binding}}" disabled="{{binding}}">绑定</button>
+      </view>
+    </view>
+  </view>
+</view>

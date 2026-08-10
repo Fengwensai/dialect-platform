@@ -1,0 +1,29 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+
+# 敏感凭据（真实微信 AppSecret 等，绝不提交）
+backend/.env
+
+# 运行时数据：录音/头像（含真实发音人数据，不入仓；storage.py 会自动重建目录）
+backend/media/
+
+# 后端日志与验证输出
+backend/*.log
+backend/_*.txt
+backend/scripts/*_out.txt
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/vite-current.log
+
+# 微信开发者工具私密配置（本机专用，含 AppID/URL 检查等本地设置）
+miniprogram/project.private.config.json
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

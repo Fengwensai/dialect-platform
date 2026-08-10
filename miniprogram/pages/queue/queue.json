@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "录音队列",
+  "enablePullDownRefresh": true,
+  "backgroundColor": "#f5f6f7",
+  "backgroundTextStyle": "dark"
+}

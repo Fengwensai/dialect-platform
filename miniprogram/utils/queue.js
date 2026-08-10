@@ -1,0 +1,236 @@
+/**
+ * 本地缓存队列（重点）。
+ *
+ * 双持久化：元数据 wx.setStorageSync('MP_RECORD_QUEUE')，音频文件存
+ * USER_DATA_PATH/records/。上传完全手动：用户在队列页/我的页点「一键上传」；重录覆盖。
+ *
+ * 队列项结构：
+ * { id, taskId, wordId, content, wavPath, durationMs, createdAt,
+ *   status: 'pending'|'uploading'|'done'|'error', error }
+ */
+const uploader = require('./uploader')
+
+const QUEUE_KEY = 'MP_RECORD_QUEUE'
+const RECORDS_DIR = wx.env.USER_DATA_PATH + '/records'
+
+let flushing = false // 防重入
+
+function _load() {
+  try {
+    return wx.getStorageSync(QUEUE_KEY) || []
+  } catch (e) {
+    return []
+  }
+}
+
+function _save(items) {
+  wx.setStorageSync(QUEUE_KEY, items)
+}
+
+function _fileExists(p) {
+  try {
+    wx.getFileSystemManager().accessSync(p)
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+function _unlink(p) {
+  try {
+    wx.getFileSystemManager().unlinkSync(p)
+  } catch (e) {
+    // 文件不存在或已删，忽略
+  }
+}
+
+function _genId() {
+  return 'rec_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)
+}
+
+/**
+ * 入队。同 (taskId, wordId) 已有非 done 项 → 覆盖（重录），删除旧 wav 文件。
+ * @param {object} item { taskId, wordId, content, wavPath, durationMs }
+ * @returns {string} 队列项 id
+ */
+function enqueue(item) {
+  // 统一转字符串，避免数字/字符串混存导致去重失效
+  const taskId = String(item.taskId)
+  const wordId = String(item.wordId)
+  const items = _load()
+  const dup = items.find(
+    (x) => String(x.taskId) === taskId && String(x.wordId) === wordId && x.status !== 'done'
+  )
+  if (dup) {
+    if (dup.wavPath && dup.wavPath !== item.wavPath) _unlink(dup.wavPath)
+    Object.assign(dup, item, {
+      id: dup.id,
+      taskId,
+      wordId,
+      status: 'pending',
+      error: '',
+      createdAt: Date.now()
+    })
+    _save(items)
+    return dup.id
+  }
+  const id = _genId()
+  items.push(
+    Object.assign(
+      { id, taskId, wordId, status: 'pending', error: '', createdAt: Date.now() },
+      item
+    )
+  )
+  _save(items)
+  return id
+}
+
+/** 全部队列项（元数据，含 wavPath） */
+function list() {
+  return _load()
+}
+
+/** 统计：total / pending / uploading / done / error */
+function count() {
+  const items = _load()
+  const c = { total: items.length, pending: 0, uploading: 0, done: 0, error: 0 }
+  items.forEach((x) => {
+    if (c[x.status] !== undefined) c[x.status]++
+  })
+  return c
+}
+
+function _update(id, patch) {
+  const items = _load()
+  const it = items.find((x) => x.id === id)
+  if (it) {
+    Object.assign(it, patch)
+    _save(items)
+  }
+  return it
+}
+
+function markUploading(id) {
+  return _update(id, { status: 'uploading' })
+}
+
+function markDone(id) {
+  return _update(id, { status: 'done', error: '' })
+}
+
+function markError(id, msg) {
+  return _update(id, { status: 'error', error: msg || '上传失败' })
+}
+
+/** 删除一条（连带删本地 wav 文件） */
+function remove(id) {
+  let items = _load()
+  const it = items.find((x) => x.id === id)
+  if (it && it.wavPath) _unlink(it.wavPath)
+  items = items.filter((x) => x.id !== id)
+  _save(items)
+}
+
+/** 批量删除（连带删各自本地 wav 文件） */
+function removeMany(ids) {
+  if (!ids || !ids.length) return
+  const set = new Set(ids)
+  let items = _load()
+  items.forEach((x) => {
+    if (set.has(x.id) && x.wavPath) _unlink(x.wavPath)
+  })
+  items = items.filter((x) => !set.has(x.id))
+  _save(items)
+}
+
+/** 清空已完成项（连带删文件，释放存储空间） */
+function clearDone() {
+  let items = _load()
+  items.forEach((x) => {
+    if (x.status === 'done' && x.wavPath) _unlink(x.wavPath)
+  })
+  items = items.filter((x) => x.status !== 'done')
+  _save(items)
+}
+
+/**
+ * 一键提交：顺序上传所有 pending，逐个成功即删本地文件。
+ * 失败项保留并标记 error，不中断后续；正在上传时不重入。
+ * @param {object} [opts] { onProgress?(percent, msg), onItem?(item, result, err) }
+ * @returns {Promise<{ok:number, fail:number, skipped?:boolean}>}
+ */
+function flush(opts) {
+  opts = opts || {}
+  if (flushing) return Promise.resolve({ ok: 0, fail: 0, skipped: true })
+
+  const pending = _load().filter((x) => x.status === 'pending')
+  if (!pending.length) {
+    if (opts.onProgress) opts.onProgress(100, '无待上传')
+    return Promise.resolve({ ok: 0, fail: 0 })
+  }
+
+  flushing = true
+  let ok = 0
+  let fail = 0
+
+  const run = (i) => {
+    const item = pending[i]
+    if (!item) {
+      flushing = false
+      if (opts.onProgress) opts.onProgress(100, '完成')
+      return Promise.resolve({ ok, fail })
+    }
+    if (opts.onProgress) {
+      opts.onProgress(
+        Math.round((i / pending.length) * 100),
+        '上传中 ' + (item.content || item.id)
+      )
+    }
+    markUploading(item.id)
+    return uploader
+      .uploadRecording(item)
+      .then((res) => {
+        ok++
+        markDone(item.id)
+        if (item.wavPath) _unlink(item.wavPath)
+        if (opts.onItem) opts.onItem(item, res, null)
+      })
+      .catch((err) => {
+        fail++
+        markError(item.id, (err && err.message) || String(err))
+        if (opts.onItem) opts.onItem(item, null, err)
+      })
+      .then(() => run(i + 1))
+  }
+
+  return run(0)
+}
+
+/**
+ * 初始化（App.onLaunch 调一次）：确保录音目录存在。
+ * 上传完全手动（队列页/我的页「一键上传」），不注册任何自动补传。
+ */
+function init() {
+  try {
+    const fs = wx.getFileSystemManager()
+    if (!_fileExists(RECORDS_DIR)) fs.mkdirSync(RECORDS_DIR, true)
+  } catch (e) {
+    // 目录创建失败不阻塞运行
+  }
+}
+
+module.exports = {
+  QUEUE_KEY,
+  RECORDS_DIR,
+  enqueue,
+  list,
+  count,
+  markUploading,
+  markDone,
+  markError,
+  remove,
+  removeMany,
+  clearDone,
+  flush,
+  init
+}

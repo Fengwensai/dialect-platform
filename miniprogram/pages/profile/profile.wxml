@@ -1,0 +1,71 @@
+<view class="page">
+  <view class="card">
+    <!-- 头像 -->
+    <view class="avatar-row">
+      <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+        <image class="avatar" wx:if="{{displayAvatarUrl}}" src="{{displayAvatarUrl}}" mode="aspectFill" />
+        <view class="avatar avatar-placeholder" wx:else>方</view>
+        <view class="avatar-edit">点击更换头像</view>
+      </button>
+    </view>
+
+    <!-- 姓名 -->
+    <view class="form-row">
+      <text class="form-label">姓名</text>
+      <input
+        class="form-input"
+        type="nickname"
+        value="{{nickname}}"
+        placeholder="微信用户"
+        placeholder-class="input-placeholder"
+        bindinput="onNicknameInput"
+        bindfocus="onNicknameFocus"
+      />
+    </view>
+
+    <!-- 属地（团队码绑定，只读） -->
+    <view class="form-row">
+      <text class="form-label">属地</text>
+      <view class="picker-value {{regionText ? '' : 'placeholder'}}">
+        {{regionText || '未加入团队'}}
+      </view>
+    </view>
+
+    <!-- 性别 -->
+    <view class="form-row">
+      <text class="form-label">性别</text>
+      <picker
+        mode="selector"
+        range="{{genderOptions}}"
+        value="{{genderIndex < 0 ? 0 : genderIndex}}"
+        bindchange="onGenderChange"
+      >
+        <view class="picker-value {{genderIndex < 0 ? 'placeholder' : ''}}">
+          {{genderIndex >= 0 ? genderOptions[genderIndex] : '请选择'}}
+        </view>
+      </picker>
+    </view>
+
+    <!-- 年龄段 -->
+    <view class="form-row">
+      <text class="form-label">年龄段</text>
+      <picker
+        mode="selector"
+        range="{{ageOptions}}"
+        value="{{ageIndex < 0 ? 0 : ageIndex}}"
+        bindchange="onAgeChange"
+      >
+        <view class="picker-value {{ageIndex < 0 ? 'placeholder' : ''}}">
+          {{ageIndex >= 0 ? ageOptions[ageIndex] : '请选择'}}
+        </view>
+      </picker>
+    </view>
+
+    <button class="btn-primary save-btn" bindtap="save" disabled="{{saving}}">
+      {{saving ? '保存中…' : '保存'}}
+    </button>
+  </view>
+
+  <!-- 隐私授权弹窗（chooseAvatar / type=nickname 触发） -->
+  <privacy-popup />
+</view>

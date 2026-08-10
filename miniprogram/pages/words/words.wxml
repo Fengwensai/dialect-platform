@@ -1,0 +1,36 @@
+<view class="page">
+  <view class="head">
+    <view class="head-title">{{taskName || '任务词条'}}</view>
+    <view class="head-sub">已录 {{recorded}} / {{total}}，点词条开始录音<block wx:if="{{redoCount}}"> · 需重录 {{redoCount}}</block></view>
+  </view>
+
+  <view class="list" wx:if="{{words.length}}">
+    <view
+      class="word"
+      wx:for="{{words}}"
+      wx:key="word_id"
+      data-id="{{item.word_id}}"
+      bindtap="record"
+    >
+      <view class="word-main">
+        <view class="word-content">{{item.content}}</view>
+        <view class="word-phon" wx:if="{{item.pronunciation_hint}}">{{item.pronunciation_hint}}</view>
+        <view class="word-tr" wx:if="{{item.hasTranscript}}">
+          <view class="tr-line" wx:if="{{item.mandarin_transcript}}">
+            <text class="tr-tag">普</text>{{item.mandarin_transcript}}
+          </view>
+          <view class="tr-line" wx:if="{{item.dialect_transcript}}">
+            <text class="tr-tag">方</text>{{item.dialect_transcript}}
+          </view>
+        </view>
+      </view>
+      <view class="word-side">
+        <view class="chip chip-{{item.chip}}">{{item.chipText}}</view>
+        <view class="word-btn">{{item.btnText}}</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="empty" wx:elif="{{!loading}}">该任务还没有词条</view>
+  <view class="loading" wx:else>加载中…</view>
+</view>

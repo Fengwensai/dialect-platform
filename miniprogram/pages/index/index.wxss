@@ -1,0 +1,277 @@
+.page {
+  /* 左右 32rpx 内边距：内容居中留白 */
+  padding: 32rpx 32rpx 300rpx; /* 底部给右下角悬浮录音按钮留位 */
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+/* 欢迎语：品牌 logo + 问候 */
+.hero {
+  display: flex;
+  align-items: center;
+  height: 200rpx;
+  box-sizing: border-box;
+  padding: 0 32rpx;
+  background: #fff;
+  border-radius: 24rpx;
+  margin-bottom: 32rpx;
+}
+
+.hero-logo {
+  width: 88rpx;
+  height: 88rpx;
+  line-height: 88rpx;
+  text-align: center;
+  background: linear-gradient(135deg, #2b6cb0, #4299e1);
+  color: #fff;
+  font-size: 40rpx;
+  font-weight: 700;
+  border-radius: 20rpx;
+  flex-shrink: 0;
+}
+
+.hero-text {
+  margin-left: 24rpx;
+  min-width: 0;
+}
+
+.hero-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #303133;
+}
+
+.hero-sub {
+  font-size: 24rpx;
+  color: #909399;
+  margin-top: 8rpx;
+}
+
+/* 领取任务：大号渐变卡片，首页最醒目 */
+.task-btn {
+  /* 与上方欢迎卡同宽居中：页面左右 32rpx 内边距决定宽度，两侧收窄内边距给文字更多空间 */
+  margin: 0;
+  padding: 0 28rpx;
+  width: 100%;
+  height: 200rpx; /* 与上方欢迎卡同高 */
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  background: linear-gradient(135deg, #2b6cb0, #4299e1);
+  border-radius: 24rpx;
+  color: #fff;
+  text-align: left;
+  box-shadow: 0 8rpx 28rpx rgba(43, 108, 176, 0.3);
+}
+
+.task-btn-hover {
+  opacity: 0.9;
+}
+
+.task-icon {
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: 26rpx;
+  background: rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 56rpx;
+  flex-shrink: 0;
+}
+
+.task-btn-text {
+  flex: 1;
+  margin-left: 36rpx;
+  min-width: 0;
+}
+
+.task-btn-title {
+  font-size: 48rpx;
+  font-weight: 700;
+}
+
+.task-btn-sub {
+  font-size: 28rpx;
+  opacity: 0.9;
+  margin-top: 16rpx;
+}
+
+.task-btn-arrow {
+  font-size: 64rpx;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.9);
+  margin-left: 16rpx;
+  flex-shrink: 0; /* 箭头不参与压缩，始终完整显示 */
+}
+
+/* 未绑定团队横幅 */
+.bind-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff7e6;
+  border: 1rpx solid #ffd591;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 32rpx;
+}
+
+.bind-text {
+  flex: 1;
+  font-size: 24rpx;
+  color: #ad6800;
+  line-height: 1.5;
+}
+
+.bind-btn {
+  margin-left: 24rpx;
+  flex-shrink: 0;
+  font-size: 24rpx;
+  color: #fff;
+  background: #fa8c16;
+  border-radius: 999rpx;
+  padding: 8rpx 28rpx;
+  line-height: 1.6;
+}
+
+.bind-btn-hover {
+  opacity: 0.85;
+}
+
+/* 底部提示 */
+.more-tip {
+  margin-top: 48rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #a0aec0;
+}
+
+/* 开始录音：右下角圆形悬浮按钮（用 view 避免 button 默认样式撑成椭圆） */
+.record-fab {
+  position: fixed;
+  right: 44rpx;
+  bottom: 72rpx;
+  z-index: 100;
+  width: 128rpx;
+  height: 128rpx;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2b6cb0, #4299e1);
+  border: 4rpx solid #fff;
+  box-shadow: 0 10rpx 32rpx rgba(43, 108, 176, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.record-fab-hover {
+  opacity: 0.85;
+}
+
+.record-fab-icon {
+  width: 64rpx;
+  height: 64rpx;
+}
+
+/* 绑定团队弹窗（自定义 modal） */
+.bind-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 56rpx;
+  box-sizing: border-box;
+}
+
+.bind-dialog {
+  width: 100%;
+  max-width: 600rpx;
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 48rpx 40rpx 32rpx;
+  box-sizing: border-box;
+}
+
+.bind-dialog-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #303133;
+  text-align: center;
+}
+
+.bind-dialog-desc {
+  font-size: 24rpx;
+  color: #909399;
+  line-height: 1.6;
+  margin-top: 16rpx;
+  text-align: center;
+}
+
+.bind-input-wrap {
+  margin-top: 36rpx;
+  background: #f5f6f7;
+  border-radius: 14rpx;
+  border: 2rpx solid transparent;
+  padding: 0 28rpx;
+  transition: border-color 0.2s;
+}
+
+.bind-input-wrap.focus {
+  border-color: #4299e1;
+  background: #fff;
+}
+
+.bind-input {
+  height: 92rpx;
+  font-size: 34rpx;
+  font-weight: 600;
+  letter-spacing: 2rpx;
+  color: #2b6cb0;
+}
+
+.bind-input-placeholder {
+  color: #a0aec0;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.bind-dialog-actions {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 40rpx;
+}
+
+.bind-dialog-btn {
+  flex: 1;
+  height: 88rpx;
+  line-height: 88rpx;
+  font-size: 30rpx;
+  border-radius: 999rpx;
+  margin: 0;
+  padding: 0;
+}
+
+.bind-dialog-btn::after {
+  border: none;
+}
+
+.bind-dialog-btn.cancel {
+  background: #f0f2f5;
+  color: #606266;
+}
+
+.bind-dialog-btn.confirm {
+  background: linear-gradient(135deg, #2b6cb0, #4299e1);
+  color: #fff;
+}
+
+.bind-dialog-btn.confirm[disabled] {
+  opacity: 0.6;
+}
