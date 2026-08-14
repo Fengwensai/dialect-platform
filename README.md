@@ -277,3 +277,6 @@ python -c "import wave;w=wave.open('out.wav');print(w.getframerate(),w.getnchann
 - `docs/database.md` — 数据库表结构与字段含义（11 张表，含 speakers/team_codes/recordings/agreements/speaker_agreements）
 - `docs/api.md` — 管理后台接口文档（含团队码管理 `/api/team-codes`、发音人属地纠错、协议管理 `/api/agreements`）
 - `docs/miniprogram-api.md` — 小程序端对接契约（阶段一/二/三/八/九接口均已实现）
+- `docs/deploy-guide.md` — 首次上线部署指南（建资源/域名/COS/systemd/Nginx）
+- `docs/update-workflow.md` — **日常更新流程**（本地改完 → 同步后端/前端/小程序到线上，部署后每次改代码照着走）
+- `docs/launch-check.md` — 小程序上线前真机手动验证清单
