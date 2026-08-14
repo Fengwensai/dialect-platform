@@ -47,7 +47,7 @@ jobs:
         run: |
           cat > .env <<'EOF'
           DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/postgres
-          JWT_SECRET=ci-only-test-secret
+          JWT_SECRET=ci-only-test-secret-0123456789abcdef
           ADMIN_INIT_PASSWORD=admin123
           WECHAT_APPID=
           WECHAT_SECRET=
