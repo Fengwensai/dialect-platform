@@ -7,15 +7,18 @@
 import csv
 import io
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from ..core.config import settings
 from ..core.deps import get_current_admin
 from ..db import get_db
 from ..models.admin import AdminUser
+from ..models.agreement import SpeakerAgreement
 from ..models.recording import Recording
 from ..models.region import Region
 from ..models.speaker import Speaker
@@ -492,3 +495,48 @@ def export_speaker_recordings(
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     return _csv_response(rows, columns, f"speaker_{speaker_id}_recordings_{ts}.csv")
+
+
+@router.delete("/{speaker_id}")
+def delete_speaker(
+    speaker_id: int,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """删除发音人（仅限无录音的发音人）。
+
+    连带清理：领取记录（task_claims）、协议接受记录（speaker_agreements）、本地头像文件。
+    省管理员只能删本省发音人（未绑定属地的也可删，与编辑语义一致）。
+    """
+    speaker = db.get(Speaker, speaker_id)
+    if speaker is None:
+        raise HTTPException(status_code=404, detail="发音人不存在")
+    if (
+        admin.role == "province_admin"
+        and admin.province_code
+        and speaker.province_code
+        and speaker.province_code != admin.province_code
+    ):
+        raise HTTPException(status_code=403, detail="只能删除本省发音人")
+    has_recording = (
+        db.query(func.count())
+        .select_from(Recording)
+        .filter(Recording.speaker_id == speaker_id)
+        .scalar()
+        or 0
+    )
+    if has_recording:
+        raise HTTPException(status_code=400, detail=f"该发音人已有 {has_recording} 条录音，不能删除")
+    db.query(TaskClaim).filter(TaskClaim.speaker_id == speaker_id).delete()
+    db.query(SpeakerAgreement).filter(SpeakerAgreement.speaker_id == speaker_id).delete()
+    db.delete(speaker)
+    db.commit()
+    # commit 成功后清理本地头像文件（storage 只管录音，头像在 MEDIA_ROOT/avatars；失败不阻断）
+    if speaker.avatar_url and speaker.avatar_url.startswith("/media/avatars/"):
+        avatar_path = Path(settings.MEDIA_ROOT) / speaker.avatar_url.removeprefix("/media/")
+        try:
+            if avatar_path.is_file():
+                avatar_path.unlink()
+        except OSError:
+            pass
+    return {"detail": "已删除"}

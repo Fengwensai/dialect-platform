@@ -295,10 +295,8 @@ def delete_task(
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
-    """删除草稿任务（连带词条关联）。仅草稿可删除。"""
+    """删除任务（连带词条关联、领取记录）。任意状态（草稿/已发布/已关闭）可删除；已有录音则拒绝。"""
     batch = _get_task(db, admin, batch_id)
-    if batch.status != "draft":
-        raise HTTPException(status_code=400, detail="仅草稿任务可删除")
     has_recording = (
         db.query(func.count())
         .select_from(Recording)

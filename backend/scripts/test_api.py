@@ -137,5 +137,89 @@ else:
     r = requests.get(f"{BASE}/api/users", headers={"Authorization": f"Bearer {hebei_token}"})
     check("省管理员无用户管理权限", r.status_code == 403, f"status={r.status_code}")
 
+    print("== 8. 任务删除（放开状态） ==")
+    from app.db import SessionLocal
+    from app.models.recording import Recording
+    from app.models.speaker import Speaker
+    from app.models.task import TaskBatch, TaskBatchItem
+    from app.models.task_claim import TaskClaim
+
+    sp_guard_id = None
+    sp_bj_id = None
+
+    # 已发布、无录音 → 可删
+    r = requests.delete(f"{BASE}/api/tasks/{tid}", headers={"Authorization": f"Bearer {admin_token}"})
+    check("已发布无录音任务可删除", r.status_code == 200, f"{r.text}")
+
+    # 建新任务 + 挂一条录音 → 删除被拒（守卫）
+    r = requests.post(
+        f"{BASE}/api/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"name": "删除守卫测试任务", "province_code": "13", "required_audio_count": 30, "word_ids": [word_ids[0]]},
+    )
+    tid2 = r.json()["id"]
+    requests.post(f"{BASE}/api/tasks/{tid2}/publish", headers={"Authorization": f"Bearer {admin_token}"})
+    db = SessionLocal()
+    try:
+        sp_guard = Speaker(device_id="reg-del-guard", nickname="删除守卫", province_code="13")
+        db.add(sp_guard)
+        db.flush()
+        sp_guard_id = sp_guard.id
+        db.add(Recording(
+            task_id=tid2, word_id=word_ids[0], speaker_id=sp_guard_id,
+            audio_url="/media/recordings/del-guard.wav", audio_duration=1200, file_size=1000,
+        ))
+        db.commit()
+    finally:
+        db.close()
+    r = requests.delete(f"{BASE}/api/tasks/{tid2}", headers={"Authorization": f"Bearer {admin_token}"})
+    check("有录音任务拒绝删除", r.status_code == 400, f"{r.text}")
+
+    print("== 9. 发音人删除 ==")
+    # 无录音发音人 → 可删
+    db = SessionLocal()
+    try:
+        sp_del = Speaker(device_id="reg-del-ok", nickname="可删发音人", province_code="13")
+        db.add(sp_del)
+        db.commit()
+        sp_del_id = sp_del.id
+    finally:
+        db.close()
+    r = requests.delete(f"{BASE}/api/speakers/{sp_del_id}", headers={"Authorization": f"Bearer {admin_token}"})
+    check("无录音发音人可删除", r.status_code == 200, f"{r.text}")
+
+    # 有录音发音人 → 拒绝
+    r = requests.delete(f"{BASE}/api/speakers/{sp_guard_id}", headers={"Authorization": f"Bearer {admin_token}"})
+    check("有录音发音人拒绝删除", r.status_code == 400, f"{r.text}")
+
+    # 省管理员删他省发音人 → 403
+    db = SessionLocal()
+    try:
+        sp_bj = Speaker(device_id="reg-del-bj", nickname="北京发音人", province_code="11")
+        db.add(sp_bj)
+        db.commit()
+        sp_bj_id = sp_bj.id
+    finally:
+        db.close()
+    r = requests.delete(f"{BASE}/api/speakers/{sp_bj_id}", headers={"Authorization": f"Bearer {hebei_token}"})
+    check("省管理员删除他省发音人被拒", r.status_code == 403, f"{r.text}")
+
+    # 清理自建夹具（ORM 直删，保证可重复运行；删除被拒分支遗留的数据一并清）
+    db = SessionLocal()
+    try:
+        if sp_guard_id:
+            db.query(Recording).filter(Recording.speaker_id == sp_guard_id).delete()
+            db.query(TaskClaim).filter(TaskClaim.speaker_id == sp_guard_id).delete()
+            db.query(Speaker).filter(Speaker.id == sp_guard_id).delete()
+        db.query(Recording).filter(Recording.task_id == tid2).delete()
+        db.query(TaskClaim).filter(TaskClaim.task_id == tid2).delete()
+        db.query(TaskBatchItem).filter(TaskBatchItem.task_batch_id == tid2).delete()
+        db.query(TaskBatch).filter(TaskBatch.id == tid2).delete()
+        if sp_bj_id:
+            db.query(Speaker).filter(Speaker.id == sp_bj_id).delete()
+        db.commit()
+    finally:
+        db.close()
+
 print(f"\n结果: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

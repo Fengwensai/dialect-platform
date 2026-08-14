@@ -455,17 +455,16 @@ JWT（HS256）内包含：
 - `404` / `403`（同 6.4）
 - `400 {"detail": "仅已关闭任务可重新打开"}`（草稿/已发布）
 
-### 6.7 删除草稿任务
+### 6.7 删除任务
 
 `DELETE /api/tasks/{batch_id}`
 
-仅 `draft` 状态可删除，连带清空其词条关联；若任务已有录音则拒绝删除。
+任意状态（草稿/已发布/已关闭）可删除，连带清空其词条关联与领取记录；若任务已有录音则拒绝删除（保护采集成果）。
 
 **响应 200**：`{"detail": "已删除"}`
 
 **错误**：
 - `404` / `403`（同 6.4）
-- `400 {"detail": "仅草稿任务可删除"}`
 - `400 {"detail": "该任务已有录音，不能删除"}`
 
 ### 6.8 查看任务词条
@@ -734,6 +733,21 @@ JWT（HS256）内包含：
 
 **错误**：`404` 发音人不存在、`403` 省管理员跨省、`401` 未登录。
 
+### 8.6 删除发音人
+
+`DELETE /api/speakers/{speaker_id}`
+
+**仅限无录音的发音人**（有录音则拒绝，保护采集成果）。连带清理：该发音人的领取记录（`task_claims`）、协议接受记录（`speaker_agreements`）、本地头像文件。
+
+**权限**：超管可删任意；省管理员仅限本省发音人（未绑定属地的也可删，与编辑语义一致）。
+
+**响应 200**：`{"detail": "已删除"}`
+
+**错误**：
+- `404 {"detail": "发音人不存在"}`
+- `403 {"detail": "只能删除本省发音人"}`
+- `400 {"detail": "该发音人已有 N 条录音，不能删除"}`
+
 ---
 
 ## 9. team-codes — 团队码管理
@@ -885,7 +899,7 @@ JWT（HS256）内包含：
 | `GET /api/regions/tree` | ✅ | ✅ |
 | `POST /api/tasks` `GET /api/tasks` `POST /api/tasks/{id}/publish` | ✅（全省） | ✅（限本省） |
 | `GET/POST /api/users` `PATCH/DELETE /api/users/{id}` | ✅ | ❌ 403 |
-| `GET /api/speakers` `PATCH /api/speakers/{id}` `GET /api/speakers/{id}/recordings` | ✅（全省） | ✅（限本省） |
+| `GET /api/speakers` `PATCH/DELETE /api/speakers/{id}` `GET /api/speakers/{id}/recordings` | ✅（全省） | ✅（限本省） |
 | `GET/POST /api/team-codes` `PATCH/DELETE /api/team-codes/{id}` | ✅（全省） | ✅（限本省） |
 | `GET /api/agreements` `GET /api/agreements/history` `POST /api/agreements` | ✅ | ❌ 403 |
 

@@ -53,10 +53,11 @@
         <el-table-column prop="created_at" label="建档时间" width="170">
           <template #default="{ row }">{{ row.created_at?.slice(0, 16) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">明细</el-button>
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" @click="removeSpeaker(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -264,7 +265,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, RefreshLeft, Download } from '@element-plus/icons-vue'
 import request from '../api/request'
 import { useAuthStore } from '../stores/auth'
@@ -526,6 +527,19 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+async function removeSpeaker(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除发音人「${row.nickname || row.device_id || row.id}」？删除后不可恢复，其头像与领取记录一并删除；有录音的发音人无法删除。`,
+      '删除确认',
+      { type: 'warning', confirmButtonClass: 'el-button--danger' }
+    )
+  } catch (e) { return }
+  await request.delete(`/speakers/${row.id}`)
+  ElMessage.success('已删除')
+  load()
 }
 
 onMounted(async () => {

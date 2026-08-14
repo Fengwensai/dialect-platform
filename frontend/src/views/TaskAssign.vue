@@ -135,15 +135,15 @@
         <el-table-column prop="created_at" label="创建时间" width="170">
           <template #default="{ row }">{{ row.created_at?.slice(0, 16) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.status === 'draft'" link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button v-if="row.status === 'draft'" link type="success" @click="publish(row)">发布</el-button>
-            <el-button v-if="row.status === 'draft'" link type="danger" @click="removeTask(row)">删除</el-button>
             <el-button v-if="row.status === 'published'" link type="warning" @click="closeTask(row)">关闭</el-button>
             <el-button v-if="row.status === 'closed'" link type="success" @click="reopenTask(row)">打开</el-button>
             <el-button link type="primary" @click="openWords(row)">词条</el-button>
             <el-button link type="warning" @click="openClaims(row)">领取</el-button>
+            <el-button link type="danger" @click="removeTask(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -591,9 +591,11 @@ async function reopenTask(row) {
 }
 
 async function removeTask(row) {
+  const statusText = row.status === 'draft' ? '草稿' : row.status === 'published' ? '已发布' : '已关闭'
+  const extra = row.status !== 'draft' ? '删除后小程序端将不再展示该任务。' : ''
   try {
     await ElMessageBox.confirm(
-      `确定删除草稿任务「${row.name}」？删除后不可恢复。`,
+      `确定删除${statusText}任务「${row.name}」？${extra}删除后不可恢复。`,
       '删除确认',
       { type: 'warning' }
     )
