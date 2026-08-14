@@ -8,6 +8,7 @@
         <el-menu-item index="/tasks"><el-icon><Promotion /></el-icon><span>任务分配</span></el-menu-item>
         <el-menu-item index="/review"><el-icon><Headset /></el-icon><span>录音审核</span></el-menu-item>
         <el-menu-item index="/speakers"><el-icon><Avatar /></el-icon><span>发音人管理</span></el-menu-item>
+        <el-menu-item index="/dashboard"><el-icon><DataAnalysis /></el-icon><span>数据看板</span></el-menu-item>
         <el-menu-item index="/teams"><el-icon><Connection /></el-icon><span>团队管理</span></el-menu-item>
         <el-menu-item index="/regions"><el-icon><LocationInformation /></el-icon><span>行政区划</span></el-menu-item>
         <el-menu-item v-if="auth.isSuper" index="/agreements"><el-icon><Document /></el-icon><span>协议管理</span></el-menu-item>

@@ -8,6 +8,7 @@ from .core.config import settings
 from .routers import (
     agreements,
     auth,
+    dashboard,
     excel,
     mp,
     regions,
@@ -44,6 +45,7 @@ app.include_router(agreements.router)
 app.include_router(mp.router)
 app.include_router(review.router)
 app.include_router(speakers.router)
+app.include_router(dashboard.router)
 app.include_router(team_codes.router)
 app.include_router(wechat.router)
 

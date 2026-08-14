@@ -13,6 +13,7 @@ const routes = [
       { path: 'tasks', name: 'tasks', component: () => import('../views/TaskAssign.vue'), meta: { title: '任务分配' } },
       { path: 'review', name: 'review', component: () => import('../views/ReviewRecordings.vue'), meta: { title: '录音审核' } },
       { path: 'speakers', name: 'speakers', component: () => import('../views/Speakers.vue'), meta: { title: '发音人管理' } },
+      { path: 'dashboard', name: 'dashboard', component: () => import('../views/Dashboard.vue'), meta: { title: '数据看板' } },
       { path: 'teams', name: 'teams', component: () => import('../views/TeamManage.vue'), meta: { title: '团队管理' } },
       { path: 'regions', name: 'regions', component: () => import('../views/RegionView.vue'), meta: { title: '行政区划' } },
       { path: 'agreements', name: 'agreements', component: () => import('../views/AgreementManage.vue'), meta: { title: '协议管理', superOnly: true } },

@@ -18,11 +18,12 @@
 6. [tasks — 任务包](#6-tasks--任务包)
 7. [users — 管理员管理](#7-users--管理员管理)
 8. [speakers — 发音人管理](#8-speakers--发音人管理)
-9. [team-codes — 团队码管理](#9-team-codes--团队码管理)
-10. [health — 健康检查](#10-health--健康检查)
-11. [agreements — 协议管理](#11-agreements--协议管理)
-12. [权限与错误码速查](#12-权限与错误码速查)
-13. [典型调用流程](#13-典型调用流程)
+9. [dashboard — 数据看板](#9-dashboard--数据看板阶段十二)
+10. [team-codes — 团队码管理](#10-team-codes--团队码管理)
+11. [health — 健康检查](#11-health--健康检查)
+12. [agreements — 协议管理](#12-agreements--协议管理)
+13. [权限与错误码速查](#13-权限与错误码速查)
+14. [典型调用流程](#14-典型调用流程)
 
 ---
 
@@ -219,6 +220,7 @@ JWT（HS256）内包含：
 | `district_code` | string | 否 | 区县 adcode |
 | `keyword` | string | 否 | 模糊匹配 `词条内容 / 方言点 / 编号`（`LIKE %kw%`） |
 | `status` | string | 否 | `active` 启用 / `disabled` 禁用；不传 = 全部（非法值 422） |
+| `exclude_task_id` | int | 否 | 编辑草稿任务时排除该任务自身词条，避免把自己判为已占用（占用制） |
 | `page` | int ≥1 | 否 | 页码，默认 1 |
 | `page_size` | int 1–200 | 否 | 每页条数，默认 20 |
 
@@ -240,6 +242,7 @@ JWT（HS256）内包含：
       "city_code": "1301",
       "district_code": "130102",
       "status": "active",
+      "occupied": false,
       "created_at": "2026-08-01T10:00:00Z"
     }
   ]
@@ -249,6 +252,8 @@ JWT（HS256）内包含：
 **省管理员**：范围自动钳制为本省 —— 即使显式传 `province_code=11`，也只会查 `13` 的数据（不会返回空，也不会越权）。
 
 > **状态语义**：`status` 默认 `active`（启用）；`disabled`（禁用）表示该词条**暂时下架**——小程序端已发布任务里不再展示/不可采录，已采集录音保留。任务创建/编辑选词条时传 `status=active` 只列启用词条。
+
+> **占用制**：`occupied=true` 表示该词条已被**其它**草稿/已发布任务占用（任务关闭后释放回池）。仅 `list_words` 填充该字段，其余场景（如任务词条清单）默认 `false`。编辑草稿任务传 `exclude_task_id` 排除自身词条，避免把自己判为已占用。
 
 ### 4.2 修改词条
 
@@ -365,6 +370,7 @@ JWT（HS256）内包含：
 - `422 {"detail": "团队码不存在"}`（关联的团队码未建）
 - `403 {"detail": "只能关联本省的团队码"}`（省管理员关联他省团队）
 - `422 {"detail": "任务地区与团队码地区不一致，选择团队后地区由团队码自动带出"}`
+- `400 {"detail": "词条「xx」已被其它任务占用，不能重复使用"}`（占用制守卫：词条已被其它草稿/已发布任务占用）
 
 ### 6.2 任务列表
 
@@ -421,6 +427,7 @@ JWT（HS256）内包含：
 - 缺省字段 = 不改；`description` 传 `null` = 清空说明。
 - `word_ids` 一旦提供则**整体替换**任务词条集合（先清后插，`word_count` 同步更新）。
 - 省管理员编辑时，词条被钳制为本省词条。
+- **占用制**：编辑时占用校验**排除当前任务自身词条**（`exclude_task_id`），自己的词条合法；新增的其它任务已占用词条会被拒绝。
 - `team_code`（阶段八）：改绑团队时**投放区划随团队码覆盖**（`province_code`/`city_code` 改为团队属地，`district_code` 清空）；传 `null` = **解除关联**，保留当前地区仅去掉团队码归属。校验同 6.1（团队存在 / 省管理员限本省）。
 
 **响应 200**：更新后的 `TaskBatchOut`（同 6.1）。
@@ -429,6 +436,7 @@ JWT（HS256）内包含：
 - `404 {"detail": "任务不存在"}`
 - `403 {"detail": "无权操作其他省份任务"}`
 - `400 {"detail": "仅草稿任务可编辑"}`
+- `400 {"detail": "词条「xx」已被其它任务占用，不能重复使用"}`（占用制守卫）
 - `422 {"detail": "团队码不存在"}` / `403 {"detail": "只能关联本省的团队码"}`（改绑团队时）
 
 ### 6.5 关闭任务
@@ -750,7 +758,74 @@ JWT（HS256）内包含：
 
 ---
 
-## 9. team-codes — 团队码管理
+## 9. dashboard — 数据看板（阶段十二）
+
+平台/本省整体概览 + 每个发音人的详细数据下钻。**权限**：超管看全国；省管理员自动钳制为本省（`Speaker.province_code` / `TaskBatch.province_code`）。
+
+### 9.1 平台/本省概览
+
+`GET /api/dashboard/summary`
+
+**响应 200** `DashboardSummary`：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `speaker_total` | int | 发音人总数（省管=本省） |
+| `recording_total` | int | 录音总数 |
+| `pending` / `approved` / `rejected` | int | 待审核 / 已通过 / 已驳回 计数 |
+| `total_duration_ms` | int | 全部录音总时长（毫秒） |
+| `approved_duration_ms` | int | 已通过录音总时长（有效时长） |
+| `approval_rate` | float | 通过率 = approved / max(approved + rejected, 1) |
+| `active_task_total` | int | 已发布（published）任务数 |
+| `team_total` | int | 发音人中去重团队码数 |
+| `distinct_word_total` | int | 已录的不同词条数 |
+| `region_breakdown` | array | 区域分布（见下） |
+
+`region_breakdown[]`：`{code, name, speaker_total, recording_total}` —— 超管按省分组、省管理员按本省市级分组；`name` 取自行政区划表。
+
+### 9.2 发音人数据表（每发音人一行）
+
+`GET /api/dashboard/speakers`
+
+**查询参数**：`keyword`（昵称/设备ID/openid 模糊）、`province_code`、`gender`（male/female/other）、`age_bracket`（under18/age18_30/age31_45/age46_60/over60）、`team_code`、`sort_by`（`recording`|`approved`|`duration`|`last_active`|`created`，默认 `recording`）、`page`（默认 1）、`page_size`（默认 20，≤200）。
+
+**响应 200**：`{total, items: [DashboardSpeakerRow]}`，每行：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id, openid, device_id, nickname` | | 发音人画像 |
+| `province_code, city_code, team_code` | str? | 属地 / 团队 |
+| `gender, age_bracket` | str? | 性别 / 年龄段 |
+| `created_at` | datetime | 建档时间 |
+| `recording_total` | int | 录音总数 |
+| `pending / approved / rejected` | int | 状态计数 |
+| `total_duration_ms / approved_duration_ms` | int | 总时长 / 有效时长（毫秒） |
+| `approval_rate` | float | 通过率 |
+| `task_count` | int | 参与的不同任务数 |
+| `word_count` | int | 已录的不同词条数 |
+| `last_active_at` | datetime? | 最近录音时间 |
+
+**错误**：`422`（非法 `gender`/`age_bracket`/`sort_by`）。
+
+### 9.3 发音人领取记录
+
+`GET /api/dashboard/speakers/{speaker_id}/claims`
+
+**权限**：省管理员仅限本省发音人（越省 `403`）；发音人不存在 `404`。
+
+**响应 200** `list[DashboardClaimOut]`：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `claim_id` | int | 领取记录 ID |
+| `task_id` / `task_name` | int / str | 任务 |
+| `word_id` / `word_code` / `word_content` | int / str? / str | 词条 |
+| `recorded` | bool | 该词条是否已有录音 |
+| `claimed_at` | datetime | 领取时间 |
+
+---
+
+## 10. team-codes — 团队码管理
 
 **一码一区（省+市）**：每个团队码唯一绑定一个省+市（`UNIQUE(province_code, city_code)`）。发音人输入团队码即绑定该省市属地，随后只能看到/录制该地区任务（阶段八隔离，见 `docs/miniprogram-api.md` §团队绑定）。
 
@@ -815,7 +890,7 @@ JWT（HS256）内包含：
 
 ---
 
-## 10. health — 健康检查
+## 11. health — 健康检查
 
 `GET /api/health`
 
@@ -823,7 +898,7 @@ JWT（HS256）内包含：
 
 ---
 
-## 11. agreements — 协议管理
+## 12. agreements — 协议管理
 
 > 全部接口仅 `super_admin` 可调用，否则 `403 {"detail": "需要超级管理员权限"}`。省管理员无此菜单（前端 `superOnly` 隐藏）。
 
@@ -875,7 +950,7 @@ JWT（HS256）内包含：
 
 ---
 
-## 12. 权限与错误码速查
+## 13. 权限与错误码速查
 
 | 状态码 | 含义 |
 |---|---|
@@ -905,7 +980,7 @@ JWT（HS256）内包含：
 
 ---
 
-## 12. 典型调用流程
+## 14. 典型调用流程
 
 **超管导入河北词表并建任务：**
 
