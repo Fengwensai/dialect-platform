@@ -17,6 +17,22 @@
           <el-option label="已通过" value="approved" />
           <el-option label="已驳回" value="rejected" />
         </el-select>
+        <el-input
+          v-model="filterKeyword"
+          placeholder="搜索发音人/词条"
+          clearable
+          style="width: 200px"
+          @keyup.enter="page = 1; load()"
+        />
+        <el-select v-model="filterProvince" placeholder="全部省份" clearable filterable style="width: 140px">
+          <el-option v-for="p in provinceOptions" :key="p.code" :label="p.name" :value="p.code" />
+        </el-select>
+        <el-select v-model="sortBy" style="width: 130px">
+          <el-option label="待审优先" value="pending_first" />
+          <el-option label="按提交时间" value="created" />
+          <el-option label="按音频时长" value="duration" />
+          <el-option label="按审核时间" value="reviewed" />
+        </el-select>
         <el-button type="primary" :icon="Search" @click="load">查询</el-button>
         <el-button :icon="RefreshLeft" @click="reset">重置</el-button>
         <el-button
@@ -33,7 +49,27 @@
 
     <!-- 录音表格 -->
     <el-card shadow="never">
-      <el-table :data="items" v-loading="loading" border stripe>
+      <!-- 批量审核操作条 -->
+      <div v-if="selection.length" class="batch-bar">
+        <span class="batch-tip">
+          已选 <b class="sel-count">{{ selection.length }}</b> 条待审核录音
+        </span>
+        <el-button type="success" size="small" :icon="CircleCheck" :loading="batchLoading" @click="batchApprove">
+          批量通过
+        </el-button>
+        <el-button type="danger" size="small" :icon="CircleClose" :loading="batchLoading" @click="batchReject">
+          批量驳回
+        </el-button>
+        <el-button size="small" @click="clearSelection">取消选择</el-button>
+      </div>
+      <el-table
+        :data="items"
+        v-loading="loading"
+        border
+        stripe
+        @selection-change="onSelectionChange"
+      >
+        <el-table-column type="selection" width="45" :selectable="(row) => row.status === 'pending'" />
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="task_name" label="任务" min-width="130" show-overflow-tooltip />
         <el-table-column label="词条" min-width="150">
@@ -82,11 +118,15 @@
         <el-table-column label="提交时间" width="150">
           <template #default="{ row }">{{ row.created_at?.slice(0, 16) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openTrans(row)">转写</el-button>
             <el-button link type="success" @click="approve(row)">通过</el-button>
             <el-button link type="danger" @click="reject(row)">驳回</el-button>
+            <template v-if="row.status === 'rejected'">
+              <el-button link type="warning" :icon="RefreshLeft" @click="resetReview(row)">重置</el-button>
+              <el-button link type="danger" :icon="Delete" @click="removeRecording(row)">删除</el-button>
+            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -140,10 +180,15 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, RefreshLeft, Download } from '@element-plus/icons-vue'
+import { Search, RefreshLeft, Download, CircleCheck, CircleClose, Delete } from '@element-plus/icons-vue'
 import request from '../api/request'
+import { useAuthStore } from '../stores/auth'
+import { useRegionStore } from '../stores/regions'
+
+const auth = useAuthStore()
+const regionStore = useRegionStore()
 
 const statusMeta = {
   pending: { type: 'warning', label: '待审核' },
@@ -153,15 +198,33 @@ const statusMeta = {
 
 const loading = ref(false)
 const exporting = ref(false)
+const batchLoading = ref(false)
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const filterTaskId = ref(null)
 const filterStatus = ref('pending')
+const filterKeyword = ref('')
+const filterProvince = ref('')
+const sortBy = ref('pending_first')
+const selection = ref([])
 const taskOptions = ref([])
 const transDialog = ref({ visible: false, id: null, word: '', mandarin: '', dialect: '' })
 const savingTrans = ref(false)
+
+const provinceOptions = computed(() => {
+  if (auth.isSuper) return regionStore.tree
+  const locked = auth.provinceCode
+  return locked ? (regionStore.tree || []).filter((p) => p.code === locked) : []
+})
+
+function onSelectionChange(rows) {
+  selection.value = rows
+}
+function clearSelection() {
+  selection.value = []
+}
 
 function fmtDuration(ms) {
   if (!ms) return '-'
@@ -175,9 +238,13 @@ async function load() {
     const params = { page: page.value, page_size: pageSize.value }
     if (filterTaskId.value) params.task_id = filterTaskId.value
     if (filterStatus.value) params.status = filterStatus.value
+    if (filterKeyword.value) params.keyword = filterKeyword.value
+    if (filterProvince.value) params.province_code = filterProvince.value
+    if (sortBy.value) params.sort_by = sortBy.value
     const data = await request.get('/review/recordings', { params })
     items.value = data.items
     total.value = data.total
+    selection.value = [] // 翻页/刷新后清空勾选，避免残留
   } finally {
     loading.value = false
   }
@@ -186,6 +253,9 @@ async function load() {
 function reset() {
   filterTaskId.value = null
   filterStatus.value = 'pending'
+  filterKeyword.value = ''
+  filterProvince.value = ''
+  sortBy.value = 'pending_first'
   page.value = 1
   load()
 }
@@ -285,8 +355,56 @@ async function reject(row) {
   refresh()
 }
 
+async function batchApprove() {
+  const n = selection.value.length
+  await ElMessageBox.confirm(`确定批量通过选中的 ${n} 条录音吗？`, '批量通过', { type: 'success' })
+  await doBatch(true, null)
+}
+
+async function batchReject() {
+  let value
+  try {
+    const res = await ElMessageBox.prompt('批量驳回选中的待审核录音', '批量驳回', {
+      inputPlaceholder: '统一驳回原因（可选），如：口音不标准 / 背景噪音大',
+      inputValue: ''
+    })
+    value = res.value
+  } catch (e) {
+    return // 取消
+  }
+  await doBatch(false, value || null)
+}
+
+async function doBatch(approved, note) {
+  batchLoading.value = true
+  try {
+    const ids = selection.value.map((r) => r.id)
+    const data = await request.post('/review/batch-verdict', { recording_ids: ids, approved, note })
+    ElMessage.success(`已处理 ${data.processed} 条${data.skipped ? `，跳过已审 ${data.skipped} 条` : ''}`)
+    selection.value = []
+    refresh()
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+async function resetReview(row) {
+  await ElMessageBox.confirm(`确定将录音 #${row.id}「${row.word_content}」重置回待审吗？`, '重置为待审', { type: 'warning' })
+  await request.post(`/review/recordings/${row.id}/reset`)
+  ElMessage.success('已重置为待审')
+  refresh()
+}
+
+async function removeRecording(row) {
+  await ElMessageBox.confirm(`确定删除录音 #${row.id}「${row.word_content}」吗？删除后发音人可重新录制。`, '删除录音', { type: 'error' })
+  await request.delete(`/review/recordings/${row.id}`)
+  ElMessage.success('已删除')
+  refresh()
+}
+
 onMounted(async () => {
-  // 任务下拉选项复用后台任务列表接口
+  // 省份下拉 + 任务下拉选项（复用行政区划树与后台任务列表接口）
+  await regionStore.ensureLoaded()
   try {
     const data = await request.get('/tasks', { params: { page_size: 200 } })
     taskOptions.value = data.items
@@ -306,6 +424,24 @@ onMounted(async () => {
 .total {
   color: #909399;
   font-size: 13px;
+}
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #fdf6ec;
+  border: 1px solid #faecd8;
+  border-radius: 6px;
+}
+.batch-tip {
+  font-size: 13px;
+  color: #606266;
+}
+.sel-count {
+  color: #e6a23c;
+  font-weight: 600;
 }
 .pager {
   margin-top: 14px;

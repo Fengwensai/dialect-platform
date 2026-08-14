@@ -178,6 +178,10 @@ npm run dev        # http://localhost:5173
 | 通过 | `POST /api/review/recordings/{id}/verdict {approved:true}` → `status=approved`，写 `reviewed_by`/`reviewed_at` | ✅ |
 | 驳回 | `{approved:false, note:"重录原因"}` → `status=rejected`，中文备注落库 | ✅ |
 | 改判 | 对已审录音再提交判决 → 覆盖更新 | ✅ |
+| 批量审核 | 勾选多条待审 → `POST /api/review/batch-verdict` 统一通过/驳回（只处理 pending，已审自动跳过，省管越省自动跳过） | ✅ |
+| 列表筛选增强 | `keyword`（发音人/词条模糊）+ `province_code` 筛选 + `sort_by`（待审优先/提交时间/时长/审核时间） | ✅ |
+| 驳回重置 | 已驳回录音一键 `POST /api/review/recordings/{id}/reset` 重置回待审（撤销判决、保留转写） | ✅ |
+| 单条删除 | 已驳回坏录音 `DELETE /api/review/recordings/{id}` 清理（存储对象同步删除，发音人可重录） | ✅ |
 | 转写 | 行内「转写」弹窗填普通话/方言转写（`PATCH /api/review/recordings/{id}/transcript`，缺省不改、空串清空），随数据集导出；发音人重录会清空转写 | ✅ |
 | 省管理员权限 | `hebei_admin` 仅见/可审本省任务录音；越省 → 403 | ✅ |
 | 小程序回流 | 审核后 `GET /api/mp/recordings/progress` 的 `approved`/`rejected` 计数自动更新 | ✅ |

@@ -15,7 +15,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import case
+from sqlalchemy import case, or_
 from sqlalchemy.orm import Session
 
 from ..core.config import settings
@@ -26,13 +26,20 @@ from ..models.recording import Recording
 from ..models.speaker import Speaker
 from ..models.task import TaskBatch
 from ..models.word import WordLibrary
-from ..schemas.review import ReviewRecordingOut, TranscriptUpdate, VerdictRequest
+from ..schemas.review import (
+    BatchVerdictRequest,
+    BatchVerdictResult,
+    ReviewRecordingOut,
+    TranscriptUpdate,
+    VerdictRequest,
+)
 from ..services import storage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/review", tags=["review"])
 
 VALID_STATUS = {"pending", "approved", "rejected"}
+VALID_SORTS = {"pending_first", "created", "duration", "reviewed"}
 
 # 发音人画像码 → manifest 中文显示（值域与 mp.py 的 GENDERS/AGE_BRACKETS 保持一致）
 GENDER_LABELS = {"male": "男", "female": "女", "other": "其他"}
@@ -94,26 +101,66 @@ def _enrich(rec: Recording, db: Session) -> ReviewRecordingOut:
 def list_review_recordings(
     task_id: int | None = None,
     status: str | None = None,
+    keyword: str | None = None,
+    province_code: str | None = None,
+    sort_by: str = "pending_first",
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
-    """分页列出录音，待审优先，可按任务/状态筛选。"""
+    """分页列出录音：任务/状态/关键词/地区筛选 + 排序（默认待审优先）。
+
+    keyword 模糊匹配发音人（昵称/设备ID/openid）与词条（内容/编号）。省管理员自动钳制为本省任务。
+    """
     if status is not None and status not in VALID_STATUS:
         raise HTTPException(status_code=422, detail="status 仅支持 pending/approved/rejected")
+    if sort_by not in VALID_SORTS:
+        raise HTTPException(
+            status_code=422, detail="sort_by 仅支持 pending_first/created/duration/reviewed"
+        )
 
-    q = db.query(Recording)
-    q = _scope_query(db, admin, q)
+    q = db.query(Recording).join(TaskBatch, Recording.task_id == TaskBatch.id)
+    if admin.role == "province_admin" and admin.province_code:
+        q = q.filter(TaskBatch.province_code == admin.province_code)
     if task_id is not None:
         q = q.filter(Recording.task_id == task_id)
     if status is not None:
         q = q.filter(Recording.status == status)
+    if province_code:
+        q = q.filter(TaskBatch.province_code == province_code)
+    if keyword:
+        like = f"%{keyword.strip()}%"
+        q = (
+            q.join(Speaker, Recording.speaker_id == Speaker.id)
+            .join(WordLibrary, Recording.word_id == WordLibrary.id)
+            .filter(
+                or_(
+                    Speaker.nickname.like(like),
+                    Speaker.device_id.like(like),
+                    Speaker.openid.like(like),
+                    WordLibrary.content.like(like),
+                    WordLibrary.code.like(like),
+                )
+            )
+        )
 
     total = q.count()
-    order = case((Recording.status == "pending", 0), else_=1)
+    order_clauses = {
+        "pending_first": [
+            case((Recording.status == "pending", 0), else_=1),
+            Recording.created_at.desc(),
+        ],
+        "created": [Recording.created_at.desc(), Recording.id.desc()],
+        "duration": [Recording.audio_duration.desc(), Recording.id.desc()],
+        "reviewed": [
+            case((Recording.reviewed_at.is_(None), 1), else_=0),
+            Recording.reviewed_at.desc(),
+            Recording.id.desc(),
+        ],
+    }
     recs = (
-        q.order_by(order, Recording.created_at.desc())
+        q.order_by(*order_clauses[sort_by])
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -147,6 +194,116 @@ def review_verdict(
     db.commit()
     db.refresh(rec)
     return _enrich(rec, db)
+
+
+@router.post("/batch-verdict", response_model=BatchVerdictResult)
+def batch_review_verdict(
+    body: BatchVerdictRequest,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """批量通过/驳回多条录音（只处理 pending，已审过的不再改动，避免覆盖人工判决）。
+
+    省管理员自动跳过非本省任务的录音。返回实际改判数 processed 与跳过数 skipped。
+    """
+    ids = list(dict.fromkeys(body.recording_ids))  # 去重保序
+    if not ids:
+        raise HTTPException(status_code=400, detail="未选择任何录音")
+
+    recs = db.query(Recording).filter(Recording.id.in_(ids)).all()
+    rec_map = {r.id: r for r in recs}
+    missing = [i for i in ids if i not in rec_map]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"录音不存在: {missing}")
+
+    task_map = {
+        t.id: t
+        for t in db.query(TaskBatch)
+        .filter(TaskBatch.id.in_([r.task_id for r in recs]))
+        .all()
+    }
+    now = datetime.now(timezone.utc)
+    processed = 0
+    for rid in ids:
+        rec = rec_map[rid]
+        task = task_map.get(rec.task_id)
+        if admin.role == "province_admin" and (
+            task is None or task.province_code != admin.province_code
+        ):
+            continue  # 越省：跳过
+        if rec.status != "pending":
+            continue  # 已审过：跳过，不改判
+        rec.status = "approved" if body.approved else "rejected"
+        rec.review_note = body.note
+        rec.reviewed_by = admin.id
+        rec.reviewed_at = now
+        processed += 1
+
+    if processed == 0:
+        raise HTTPException(
+            status_code=400, detail="所选录音均无需审核（已审过或不在本省范围）"
+        )
+    db.commit()
+    return BatchVerdictResult(processed=processed, skipped=len(ids) - processed)
+
+
+@router.post("/recordings/{recording_id}/reset", response_model=ReviewRecordingOut)
+def reset_recording_to_pending(
+    recording_id: int,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """驳回重置为待审：仅 rejected 可重置，撤销判决（清备注/审核人/审核时间）。
+
+    转写（普通话/方言）与内容安全标记保留——转写是内容资产，重置只是让它重新排队。
+    """
+    rec = db.get(Recording, recording_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="录音不存在")
+
+    task = db.get(TaskBatch, rec.task_id)
+    if admin.role == "province_admin" and (
+        task is None or task.province_code != admin.province_code
+    ):
+        raise HTTPException(status_code=403, detail="只能操作本省任务的录音")
+
+    if rec.status != "rejected":
+        raise HTTPException(status_code=400, detail="仅已驳回的录音可重置为待审")
+    rec.status = "pending"
+    rec.review_note = None
+    rec.reviewed_by = None
+    rec.reviewed_at = None
+    db.commit()
+    db.refresh(rec)
+    return _enrich(rec, db)
+
+
+@router.delete("/recordings/{recording_id}")
+def delete_rejected_recording(
+    recording_id: int,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """单条删除录音（仅 rejected）：清理存储对象 + 删除 DB 行。
+
+    删除后该 (任务, 词条, 发音人) 不再有录音，发音人可重新录制（领取记录保留）。
+    """
+    rec = db.get(Recording, recording_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="录音不存在")
+
+    task = db.get(TaskBatch, rec.task_id)
+    if admin.role == "province_admin" and (
+        task is None or task.province_code != admin.province_code
+    ):
+        raise HTTPException(status_code=403, detail="只能操作本省任务的录音")
+
+    if rec.status != "rejected":
+        raise HTTPException(status_code=400, detail="仅已驳回的录音可删除")
+    storage.delete_object(rec.audio_url)  # COS/本地统一，失败不阻断
+    db.delete(rec)
+    db.commit()
+    return {"detail": "已删除"}
 
 
 @router.patch("/recordings/{recording_id}/transcript", response_model=ReviewRecordingOut)

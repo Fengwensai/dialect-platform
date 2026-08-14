@@ -10,6 +10,21 @@ class VerdictRequest(BaseModel):
     note: str | None = None
 
 
+class BatchVerdictRequest(BaseModel):
+    """批量审核：对多条录音统一通过/驳回。只处理 pending，已审过的不再改动。"""
+
+    recording_ids: list[int]
+    approved: bool
+    note: str | None = None
+
+
+class BatchVerdictResult(BaseModel):
+    """批量审核结果。skipped = 已审过 / 不在本省范围的条数（未改动）。"""
+
+    processed: int
+    skipped: int
+
+
 class TranscriptUpdate(BaseModel):
     """更新录音转写（审核页填写）。缺省=不改；null/空串=清空。"""
 

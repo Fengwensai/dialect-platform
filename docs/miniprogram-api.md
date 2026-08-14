@@ -501,7 +501,7 @@ file:           <音频文件>
 ### ✅ 录音列表 `GET /api/review/recordings`（已实现，需管理员 token）
 
 ```
-GET /api/review/recordings?task_id=1&status=pending&page=1&page_size=20
+GET /api/review/recordings?task_id=1&status=pending&keyword=张老师&province_code=13&sort_by=created&page=1&page_size=20
 ```
 
 **响应 200**：
@@ -536,9 +536,27 @@ GET /api/review/recordings?task_id=1&status=pending&page=1&page_size=20
 }
 ```
 
-- 筛选：`task_id` 可选；`status` 可选且仅 `pending`/`approved`/`rejected`（否则 422）。
-- 排序：待审优先，其次 `created_at` 倒序；分页 `page` / `page_size`（默认 20）。
+- **筛选**：`task_id`（任务）、`status`（仅 `pending`/`approved`/`rejected`，否则 422）、`keyword`（模糊匹配**发音人昵称/设备ID/openid 或词条内容/编号**）、`province_code`（任务所属省）。
+- **排序** `sort_by`：`pending_first`（默认，待审优先 + `created_at` 倒序）| `created`（提交时间倒序）| `duration`（音频时长倒序）| `reviewed`（最近审核优先，未审靠后）。非法值 422。
+- 分页 `page` / `page_size`（默认 20）；省管理员自动钳制为本省任务录音。
 - `reviewed_by_name` 为审核管理员姓名；未审核项为 `null`。
+
+### ✅ 批量审核 `POST /api/review/batch-verdict`（已实现，需管理员 token）
+
+对多条录音**统一通过/驳回**（审核页勾选多条 → 批量操作）：
+
+```
+POST /api/review/batch-verdict
+Authorization: Bearer <admin token>
+Content-Type: application/json
+
+{ "recording_ids": [101, 102, 103], "approved": true, "note": null }
+```
+
+- `recording_ids`：非空且全部存在（空 → 400「未选择任何录音」；有不存在的 → 404）。
+- **只处理 `pending`**：已审过的自动跳过（不覆盖人工判决）；省管理员自动跳过非本省任务录音。
+- `approved`：统一通过/驳回；`note`：统一驳回原因（可空）。
+- **响应 200**：`{"processed": 2, "skipped": 1}` —— `processed` 实际改判数，`skipped` 已审/越省跳过数。若 `processed = 0` → `400「所选录音均无需审核」`。
 
 ### ✅ 审核判决 `POST /api/review/recordings/{recording_id}/verdict`（已实现，需管理员 token）
 
@@ -553,6 +571,34 @@ Content-Type: application/json
 - 响应为单条富化后的录音（同列表项结构）；录音不存在 → `404 录音不存在`。
 - 允许重复审核（改判覆盖，`reviewed_by`/`reviewed_at` 更新）。
 - 审核后：小程序进度接口（§6）的 `approved`/`rejected` 计数自动反映；发音人重录同名词条会覆盖并重置为 `pending`。
+
+### ✅ 驳回重置为待审 `POST /api/review/recordings/{recording_id}/reset`（已实现，需管理员 token）
+
+审核**误判驳回**后一键把录音重置回 `pending` 重新排队审核（审核页已驳回行「重置」按钮）：
+
+```
+POST /api/review/recordings/101/reset
+Authorization: Bearer <admin token>
+```
+
+- **仅 `rejected` 可重置**：`pending`/`approved` → `400「仅已驳回的录音可重置为待审」`；不存在 → `404`；省管理员越省 → `403`。
+- 重置内容：`status=pending`、清空 `review_note`/`reviewed_by`/`reviewed_at`（撤销上次判决）。
+- **转写（普通话/方言）与内容安全标记保留**——只撤销判决，不清内容资产。
+- 响应为重置后的单条富化录音。
+
+### ✅ 单条删除录音 `DELETE /api/review/recordings/{recording_id}`（已实现，需管理员 token）
+
+清理**已驳回的坏录音**（口音差/噪音/垃圾音频），审核页已驳回行「删除」按钮：
+
+```
+DELETE /api/review/recordings/101
+Authorization: Bearer <admin token>
+```
+
+- **仅 `rejected` 可删**：`pending`/`approved` → `400「仅已驳回的录音可删除」`；不存在 → `404`；省管理员越省 → `403`。
+- 删除时同步清理存储对象（COS 对象 / 本地文件，失败不阻断）+ 删除 DB 行。
+- **领取记录保留**：删除后该 (任务, 词条, 发音人) 不再有录音，发音人可重新录制（进度接口的 `recorded` 自动变 false）。
+- 响应 200：`{"detail": "已删除"}`。
 
 ### ✅ 更新录音转写 `PATCH /api/review/recordings/{recording_id}/transcript`（已实现，需管理员 token）
 
