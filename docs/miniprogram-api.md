@@ -656,6 +656,82 @@ Authorization: Bearer <admin token>
 
 ---
 
+## 7.5 数据质量与看板（管理后台，已实现）
+
+### ✅ 词条查重提示 `GET /api/words/check-duplicate`（需管理员 token）
+
+词条 content **全局精确查重**（仅提示不拦截：方言词同词异音可能合法，用户确认后仍可保存）。
+
+```
+GET /api/words/check-duplicate?content=方言词&exclude_word_id=3
+Authorization: Bearer <admin token>
+```
+
+| 参数 | 说明 |
+|---|---|
+| `content` | 词条内容（必填；空串 → 命中 false） |
+| `exclude_word_id` | 排除自身（编辑词条时传入，避免把自己判为重复） |
+
+**响应 200**：`{"duplicate": true/false, "word": {"id", "code", "content", "dialect_point"}\|null}`。前端编辑保存前调用，命中则弹「已存在相同内容词条」确认框，确认后才 `PATCH` 保存。
+
+### ✅ 词条合并 `POST /api/words/merge`（需管理员 token）
+
+把 `remove_word_id` 词条的引用并入 `keep_word_id` 后删除 remove，用于清理重复词条。
+
+```
+POST /api/words/merge
+{"keep_word_id": 1, "remove_word_id": 2}
+```
+
+- **Recording**：word_id 迁到 keep；同 `(task, speaker)` 冲突按状态保留（`approved > rejected > pending`，同级留新），被淘汰录音连带删除存储文件。
+- **TaskClaim**：word_id 迁到 keep；同 `(task, keep)` 已被领取 → 删 remove 的 claim。
+- **TaskBatchItem**：word_id 迁到 keep；同 `(task_batch, keep)` 已存在 → 删 remove 的 item。
+- 删除 remove 词条。
+- 400：keep==remove；404：词条不存在；403：省管越省（两词条均须本省）。
+
+**响应 200**：`{"detail": "已合并", "moved_recordings": n, "removed_recordings": n, "moved_claims": n, "removed_claims": n, "moved_items": n, "removed_items": n}`。
+
+### ✅ 发音人合并 `POST /api/speakers/merge`（需管理员 token）
+
+把 `remove_speaker_id`（换设备/先匿名后微信登录产生的多身份）并入 `keep_speaker_id` 后删除 remove。
+
+```
+POST /api/speakers/merge
+{"keep_speaker_id": 10, "remove_speaker_id": 11}
+```
+
+- **Recording**：speaker_id 迁到 keep；同 `(task, word)` 冲突按状态保留策略去重（淘汰者连带删存储文件）。
+- **TaskClaim**：speaker_id 迁到 keep（`UNIQUE(task_id, word_id)` 一词一领，同键冲突分支为防御性代码）。
+- **SpeakerAgreement**：同 type 保留 version 大者（原地升级 keep 行并删 remove 的，绕开 `UNIQUE(speaker_id, type)`）。
+- 属地/团队码以 keep 为准；remove 的 `device_id`/`openid` 置空后删除（绕过唯一约束）并清理头像文件。
+- 400：keep==remove；404：不存在；403：省管越省。
+
+**响应 200**：`{"detail": "已合并", "moved_recordings": n, "removed_recordings": n, "moved_claims": n, "removed_claims": n, "moved_agreements": n, "removed_agreements": n}`。
+
+### ✅ 录音趋势（数字卡片） `GET /api/dashboard/trends`（需管理员 token）
+
+```
+GET /api/dashboard/trends?days=7
+```
+
+近 `days` 天（默认 7，范围 1-365）新增录音按状态聚合：`{"days", "new_recordings", "pending", "approved", "rejected", "approval_rate"}`。省管理员自动钳制为本省。
+
+### ✅ 词条采集难度快照 `GET /api/dashboard/words`（需管理员 token）
+
+按词条聚合当前录音状态，定位「反复被驳回」的难采集词条（无审核历史表，用当前 rejected 计数近似）。
+
+```
+GET /api/dashboard/words?page=1&page_size=20&sort_by=reject
+```
+
+| 参数 | 说明 |
+|---|---|
+| `sort_by` | `reject`（默认，按驳回数倒序）/ `approval`（按通过率升序）/ `recording`（按录音数倒序） |
+
+**响应 200**：`{"total", "items": [{word_id, code, content, dialect_point, province_code, recording_total, pending, approved, rejected, approval_rate, reject_rate}]}`。省管理员仅统计本省词条。
+
+---
+
 ## 8. 数据表（已实现，详见 `database.md`）
 
 | 表 | 字段要点 |

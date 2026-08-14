@@ -5,11 +5,14 @@ from sqlalchemy.orm import Session
 from ..core.deps import get_current_admin
 from ..db import get_db
 from ..models.admin import AdminUser
+from ..models.recording import Recording
 from ..models.task import TaskBatch, TaskBatchItem
 from ..models.task_claim import TaskClaim
 from ..models.word import WordLibrary
-from ..schemas.word import WordOut, WordUpdate
+from ..schemas.word import WordMergeRequest, WordOut, WordUpdate
+from ..services import storage
 from ..services.region_matcher import match_region
+from .speakers import _pick_better_recording
 
 router = APIRouter(prefix="/api/words", tags=["words"])
 
@@ -83,6 +86,117 @@ def list_words(
     return {
         "total": total,
         "items": out,
+    }
+
+
+@router.get("/check-duplicate")
+def check_duplicate_word(
+    content: str = "",
+    exclude_word_id: int | None = None,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """词条查重（仅提示不拦截）：content 全局精确匹配，排除自身，命中返回第一条。
+
+    前端编辑保存前调用，命中则弹「已存在相同内容词条」确认；确认后仍可保存。
+    """
+    content = (content or "").strip()
+    if not content:
+        return {"duplicate": False, "word": None}
+    q = db.query(WordLibrary).filter(WordLibrary.content == content)
+    if exclude_word_id:
+        q = q.filter(WordLibrary.id != exclude_word_id)
+    dup = q.order_by(WordLibrary.id).first()
+    if dup is None:
+        return {"duplicate": False, "word": None}
+    return {
+        "duplicate": True,
+        "word": {
+            "id": dup.id,
+            "code": dup.code,
+            "content": dup.content,
+            "dialect_point": dup.dialect_point,
+        },
+    }
+
+
+@router.post("/merge")
+def merge_words(
+    body: WordMergeRequest,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """词条合并：把 remove_word 的引用并入 keep_word，然后删除 remove_word。
+
+    引用迁移：Recording.word_id / TaskClaim.word_id / TaskBatchItem.word_id。
+    冲突处理：录音按状态保留策略去重（approved>rejected>pending，同级留新，淘汰者连带删存储对象）；
+    领取/任务包引用若目标已存在则删除 remove 的（保持 UNIQUE(task,word)/(task_batch,word)）。
+    """
+    keep = db.get(WordLibrary, body.keep_word_id)
+    remove = db.get(WordLibrary, body.remove_word_id)
+    if keep is None or remove is None:
+        raise HTTPException(status_code=404, detail="词条不存在")
+    if keep.id == remove.id:
+        raise HTTPException(status_code=400, detail="不能合并同一个词条")
+    for w in (keep, remove):
+        if admin.role == "province_admin" and w.province_code != admin.province_code:
+            raise HTTPException(status_code=403, detail="无权操作其他省份词条")
+
+    moved_rec = removed_rec = moved_claim = removed_claim = moved_item = removed_item = 0
+
+    # —— Recording：迁移 word_id，冲突按状态保留策略去重 ——
+    target_recs = {
+        (r.task_id, r.speaker_id): r
+        for r in db.query(Recording).filter(Recording.word_id == keep.id).all()
+    }
+    for r in db.query(Recording).filter(Recording.word_id == remove.id).all():
+        key = (r.task_id, r.speaker_id)
+        existing = target_recs.get(key)
+        if existing is None:
+            r.word_id = keep.id
+            target_recs[key] = r
+            moved_rec += 1
+        else:
+            better = _pick_better_recording(existing, r)
+            loser = existing if better is r else r
+            storage.delete_object(loser.audio_url)  # 淘汰者连带清理存储
+            db.delete(loser)
+            better.word_id = keep.id  # 胜者（无论原属哪方）统一归到 keep，避免孤儿引用
+            target_recs[key] = better
+            removed_rec += 1
+
+    # —— TaskClaim：迁移，同 (task, keep) 已被领取则删 remove 的 ——
+    keep_claim_tasks = {c.task_id for c in db.query(TaskClaim).filter(TaskClaim.word_id == keep.id).all()}
+    for cl in db.query(TaskClaim).filter(TaskClaim.word_id == remove.id).all():
+        if cl.task_id in keep_claim_tasks:
+            db.delete(cl)
+            removed_claim += 1
+        else:
+            cl.word_id = keep.id
+            keep_claim_tasks.add(cl.task_id)
+            moved_claim += 1
+
+    # —— TaskBatchItem：迁移，同 (task_batch, keep) 已存在则删 remove 的 ——
+    keep_item_tasks = {it.task_batch_id for it in db.query(TaskBatchItem).filter(TaskBatchItem.word_id == keep.id).all()}
+    for it in db.query(TaskBatchItem).filter(TaskBatchItem.word_id == remove.id).all():
+        if it.task_batch_id in keep_item_tasks:
+            db.delete(it)
+            removed_item += 1
+        else:
+            it.word_id = keep.id
+            keep_item_tasks.add(it.task_batch_id)
+            moved_item += 1
+
+    db.delete(remove)
+    db.commit()
+    return {
+        "detail": "已合并",
+        "moved_recordings": moved_rec,
+        "removed_recordings": removed_rec,
+        "moved_claims": moved_claim,
+        "removed_claims": removed_claim,
+        "moved_items": moved_item,
+        "removed_items": removed_item,
     }
 
 

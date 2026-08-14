@@ -15,6 +15,13 @@ class SpeakerUpdate(BaseModel):
     city_code: str | None = None
 
 
+class SpeakerMergeRequest(BaseModel):
+    """发音人合并：keep 保留，remove 的数据并入 keep 后删除 remove（含设备/微信身份）。"""
+
+    keep_speaker_id: int
+    remove_speaker_id: int
+
+
 class SpeakerTaskStat(BaseModel):
     """发音人在某个任务的录音数。"""
 

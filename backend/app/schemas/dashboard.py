@@ -65,3 +65,30 @@ class DashboardClaimOut(BaseModel):
     word_content: str
     recorded: bool = False  # 该词条是否已有录音
     claimed_at: datetime
+
+
+class DashboardTrends(BaseModel):
+    """近 days 天录音趋势（数字卡片）。"""
+
+    days: int
+    new_recordings: int  # 窗口内新增录音总数
+    pending: int
+    approved: int
+    rejected: int
+    approval_rate: float  # 窗口内通过率 approved / (approved + rejected)
+
+
+class DashboardWordDifficulty(BaseModel):
+    """词条采集难度（当前状态快照）：该词条各状态录音数 + 通过/驳回率。"""
+
+    word_id: int
+    code: str
+    content: str
+    dialect_point: str
+    province_code: str | None = None
+    recording_total: int = 0
+    pending: int = 0
+    approved: int = 0
+    rejected: int = 0
+    approval_rate: float = 0.0  # approved / (approved + rejected)
+    reject_rate: float = 0.0  # rejected / (approved + rejected)

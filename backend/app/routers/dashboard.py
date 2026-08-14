@@ -3,6 +3,8 @@
 平台/本省整体概览 + 每个发音人的详细数据（每发音人一行关键指标 + 下钻领取记录）。
 权限：超管看全国，省管理员仅看本省（沿用 speakers.py 的属地钳制与聚合模式）。
 """
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -20,6 +22,8 @@ from ..schemas.dashboard import (
     DashboardClaimOut,
     DashboardSpeakerRow,
     DashboardSummary,
+    DashboardTrends,
+    DashboardWordDifficulty,
     RegionBreakdownItem,
 )
 from .speakers import AGE_BRACKETS, GENDERS, _speaker_query
@@ -27,6 +31,7 @@ from .speakers import AGE_BRACKETS, GENDERS, _speaker_query
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 VALID_SORTS = {"recording", "approved", "duration", "last_active", "created"}
+VALID_WORD_SORTS = {"reject", "approval", "recording"}
 
 
 def _validate_dashboard_filters(gender, age_bracket, sort_by):
@@ -273,6 +278,103 @@ def dashboard_speakers(
             )
         )
     return {"total": total, "items": items}
+
+
+@router.get("/trends", response_model=DashboardTrends)
+def dashboard_trends(
+    days: int = Query(7, ge=1, le=365),
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """近 days 天新增录音/审核趋势（数字卡片）。窗口边界在 Python 端取 UTC，避免时区不一致。"""
+    scope = _province_scope(db, admin)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    rec_q = db.query(Recording).join(Speaker, Recording.speaker_id == Speaker.id)
+    if scope:
+        rec_q = rec_q.filter(Speaker.province_code == scope)
+    rec_q = rec_q.filter(Recording.created_at >= cutoff)
+    rows = (
+        rec_q.with_entities(Recording.status, func.count(Recording.id))
+        .group_by(Recording.status)
+        .all()
+    )
+    counts = {s: c for s, c in rows}
+    pending = counts.get("pending", 0)
+    approved = counts.get("approved", 0)
+    rejected = counts.get("rejected", 0)
+    return DashboardTrends(
+        days=days,
+        new_recordings=pending + approved + rejected,
+        pending=pending,
+        approved=approved,
+        rejected=rejected,
+        approval_rate=approved / (approved + rejected) if (approved + rejected) else 0.0,
+    )
+
+
+@router.get("/words")
+def dashboard_words(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    sort_by: str = "reject",
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """词条采集难度快照：按词条聚合录音状态（通过/驳回/待审），默认驳回多优先。
+
+    省管理员仅统计本省词条。无审核历史表，用当前 rejected 计数近似「反复被驳回」。
+    """
+    if sort_by not in VALID_WORD_SORTS:
+        raise HTTPException(status_code=422, detail="sort_by 仅支持 reject/approval/recording")
+
+    word_q = db.query(WordLibrary)
+    if admin.role == "province_admin" and admin.province_code:
+        word_q = word_q.filter(WordLibrary.province_code == admin.province_code)
+    words = word_q.all()
+    if not words:
+        return {"total": 0, "items": []}
+    word_ids = [w.id for w in words]
+
+    rows = (
+        db.query(Recording.word_id, Recording.status, func.count(Recording.id))
+        .filter(Recording.word_id.in_(word_ids))
+        .group_by(Recording.word_id, Recording.status)
+        .all()
+    )
+    agg: dict[int, dict] = {}
+    for wid, st, c in rows:
+        d = agg.setdefault(wid, {"pending": 0, "approved": 0, "rejected": 0})
+        d[st] = c
+
+    items = []
+    for w in words:
+        a = agg.get(w.id, {"pending": 0, "approved": 0, "rejected": 0})
+        reviewed = a["approved"] + a["rejected"]
+        items.append(
+            DashboardWordDifficulty(
+                word_id=w.id,
+                code=w.code,
+                content=w.content,
+                dialect_point=w.dialect_point,
+                province_code=w.province_code,
+                recording_total=a["pending"] + a["approved"] + a["rejected"],
+                pending=a["pending"],
+                approved=a["approved"],
+                rejected=a["rejected"],
+                approval_rate=a["approved"] / reviewed if reviewed else 0.0,
+                reject_rate=a["rejected"] / reviewed if reviewed else 0.0,
+            )
+        )
+    if sort_by == "approval":
+        items.sort(key=lambda x: (x.approval_rate, -x.rejected, -x.word_id))
+    elif sort_by == "recording":
+        items.sort(key=lambda x: (-x.recording_total, -x.word_id))
+    else:  # reject：驳回多优先，同量按驳回率
+        items.sort(key=lambda x: (-x.rejected, -x.reject_rate, -x.word_id))
+
+    total = len(items)
+    page_items = items[(page - 1) * page_size : page * page_size]
+    return {"total": total, "items": page_items}
 
 
 @router.get("/speakers/{speaker_id}/claims", response_model=list[DashboardClaimOut])

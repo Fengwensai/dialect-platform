@@ -4,7 +4,7 @@
     <el-card shadow="never" style="margin-bottom: 12px">
       <div class="card-head">
         <b>平台概览</b>
-        <el-button size="small" :icon="Refresh" :loading="summaryLoading" @click="loadSummary">刷新</el-button>
+        <el-button size="small" :icon="Refresh" :loading="summaryLoading" @click="refreshOverview">刷新</el-button>
       </div>
       <div v-loading="summaryLoading" class="stats-row">
         <div class="stat-box"><div class="stat-num">{{ summary?.speaker_total ?? '-' }}</div><div class="stat-label">发音人总数</div></div>
@@ -22,6 +22,23 @@
         <span>已录词条 <b>{{ summary?.distinct_word_total ?? '-' }}</b></span>
       </div>
 
+      <!-- 近 N 天趋势（数字卡片） -->
+      <div class="trend-block">
+        <div class="trend-head">
+          <span class="trend-title">录音趋势</span>
+          <el-radio-group v-model="trendDays" size="small" @change="loadTrends">
+            <el-radio-button :value="7">近 7 天</el-radio-button>
+            <el-radio-button :value="30">近 30 天</el-radio-button>
+          </el-radio-group>
+        </div>
+        <div v-loading="trendLoading" class="stats-row">
+          <div class="stat-box"><div class="stat-num">{{ trend?.new_recordings ?? '-' }}</div><div class="stat-label">新增录音</div></div>
+          <div class="stat-box ok"><div class="stat-num">{{ trend?.approved ?? '-' }}</div><div class="stat-label">已通过</div></div>
+          <div class="stat-box bad"><div class="stat-num">{{ trend?.rejected ?? '-' }}</div><div class="stat-label">已驳回</div></div>
+          <div class="stat-box"><div class="stat-num">{{ pct(trend?.approval_rate) }}</div><div class="stat-label">通过率</div></div>
+        </div>
+      </div>
+
       <!-- 区域分布 -->
       <div v-if="summary?.region_breakdown?.length" class="region-block">
         <span class="region-title">{{ auth.isSuper ? '省份分布' : '本省市级分布' }}</span>
@@ -31,6 +48,53 @@
           <el-table-column prop="recording_total" label="录音数" width="110" />
         </el-table>
       </div>
+    </el-card>
+
+    <!-- ===== 词条采集难度 ===== -->
+    <el-card shadow="never" style="margin-bottom: 12px">
+      <template #header>
+        <div class="card-head">
+          <b>词条采集难度</b>
+          <el-select v-model="wordSort" style="width: 150px" @change="wordPage = 1; loadWordDifficulty()">
+            <el-option label="按驳回数" value="reject" />
+            <el-option label="按通过率" value="approval" />
+            <el-option label="按录音数" value="recording" />
+          </el-select>
+        </div>
+      </template>
+      <el-table :data="wordItems" v-loading="wordLoading" border stripe>
+        <el-table-column prop="code" label="编号" width="100" show-overflow-tooltip />
+        <el-table-column prop="content" label="词条" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="dialect_point" label="方言点" width="150" show-overflow-tooltip />
+        <el-table-column prop="recording_total" label="录音" width="70" />
+        <el-table-column label="待审" width="70">
+          <template #default="{ row }"><span class="num-warn">{{ row.pending }}</span></template>
+        </el-table-column>
+        <el-table-column label="通过" width="70">
+          <template #default="{ row }"><span class="num-ok">{{ row.approved }}</span></template>
+        </el-table-column>
+        <el-table-column label="驳回" width="70">
+          <template #default="{ row }"><span class="num-bad">{{ row.rejected }}</span></template>
+        </el-table-column>
+        <el-table-column label="通过率" width="90">
+          <template #default="{ row }">{{ pct(row.approval_rate) }}</template>
+        </el-table-column>
+        <el-table-column label="驳回率" width="90">
+          <template #default="{ row }">
+            <el-tag v-if="row.reject_rate" type="danger" size="small">{{ pct(row.reject_rate) }}</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-pagination
+        class="pager"
+        background
+        layout="total, prev, pager, next"
+        :total="wordTotal"
+        :page-size="wordPageSize"
+        :current-page="wordPage"
+        @current-change="(p) => { wordPage = p; loadWordDifficulty() }"
+      />
     </el-card>
 
     <!-- ===== 发音人数据表 ===== -->
@@ -279,6 +343,19 @@ const regionStore = useRegionStore()
 const summary = ref(null)
 const summaryLoading = ref(false)
 
+// —— 趋势（近 N 天数字卡片）——
+const trendDays = ref(7)
+const trend = ref(null)
+const trendLoading = ref(false)
+
+// —— 词条采集难度 ——
+const wordItems = ref([])
+const wordTotal = ref(0)
+const wordPage = ref(1)
+const wordPageSize = ref(20)
+const wordSort = ref('reject')
+const wordLoading = ref(false)
+
 // —— 发音人表 ——
 const items = ref([])
 const total = ref(0)
@@ -361,6 +438,33 @@ async function loadSummary() {
     summary.value = await request.get('/dashboard/summary')
   } finally {
     summaryLoading.value = false
+  }
+}
+
+function refreshOverview() {
+  loadSummary()
+  loadTrends()
+}
+
+async function loadTrends() {
+  trendLoading.value = true
+  try {
+    trend.value = await request.get('/dashboard/trends', { params: { days: trendDays.value } })
+  } finally {
+    trendLoading.value = false
+  }
+}
+
+async function loadWordDifficulty() {
+  wordLoading.value = true
+  try {
+    const data = await request.get('/dashboard/words', {
+      params: { page: wordPage.value, page_size: wordPageSize.value, sort_by: wordSort.value }
+    })
+    wordItems.value = data.items
+    wordTotal.value = data.total
+  } finally {
+    wordLoading.value = false
   }
 }
 
@@ -508,6 +612,8 @@ async function exportDetail() {
 onMounted(async () => {
   await regionStore.ensureLoaded()
   loadSummary()
+  loadTrends()
+  loadWordDifficulty()
   loadSpeakers()
 })
 </script>
@@ -553,6 +659,21 @@ onMounted(async () => {
 .sub-line b {
   color: #303133;
   margin-left: 2px;
+}
+.trend-block {
+  margin-top: 14px;
+  border-top: 1px dashed #ebeef5;
+  padding-top: 12px;
+}
+.trend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.trend-title {
+  font-size: 13px;
+  color: #606266;
 }
 .region-block {
   margin-top: 14px;

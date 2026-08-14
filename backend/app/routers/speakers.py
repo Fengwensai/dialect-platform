@@ -27,6 +27,7 @@ from ..models.task_claim import TaskClaim
 from ..models.word import WordLibrary
 from ..schemas.speakers import (
     SpeakerAdminOut,
+    SpeakerMergeRequest,
     SpeakerRecordingOut,
     SpeakerRecordingStats,
     SpeakerRecordingsOut,
@@ -126,6 +127,23 @@ def _recording_counts(db: Session) -> dict[int, int]:
         .all()
     )
     return {sid: cnt for sid, cnt in rows}
+
+
+def _pick_better_recording(a: Recording, b: Recording) -> Recording:
+    """录音冲突保留策略：approved > rejected > pending，同级保留 created_at 较新者。
+
+    返回应保留的录音，调用方删除另一个（并清理其存储对象）。词条/发音人合并共用。
+    """
+    priority = {"approved": 0, "rejected": 1, "pending": 2}
+    pa = priority.get(a.status, 9)
+    pb = priority.get(b.status, 9)
+    if pb < pa:
+        return b
+    if pb > pa:
+        return a
+    ta = a.created_at or a.id
+    tb = b.created_at or b.id
+    return b if tb > ta else a
 
 
 def _to_out(speaker: Speaker, counts: dict[int, int]) -> SpeakerAdminOut:
@@ -540,3 +558,115 @@ def delete_speaker(
         except OSError:
             pass
     return {"detail": "已删除"}
+
+
+@router.post("/merge")
+def merge_speakers(
+    body: SpeakerMergeRequest,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """发音人合并：remove 的引用并入 keep 后删除 remove（同一人换设备产生的多身份合一）。
+
+    引用迁移：Recording.speaker_id / TaskClaim.speaker_id / SpeakerAgreement.speaker_id。
+    冲突处理：录音同 (task, word) 按状态保留策略去重（淘汰者连带删存储对象）；
+    领取同 (task, word) keep 已领则删 remove 的；协议同 type 保留 version 大者。
+    属地/团队码以 keep 为准；remove 的 device_id/openid 置空后再删（绕过唯一约束）并清头像。
+    """
+    keep = db.get(Speaker, body.keep_speaker_id)
+    remove = db.get(Speaker, body.remove_speaker_id)
+    if keep is None or remove is None:
+        raise HTTPException(status_code=404, detail="发音人不存在")
+    if keep.id == remove.id:
+        raise HTTPException(status_code=400, detail="不能合并同一个发音人")
+    for sp in (keep, remove):
+        if (
+            admin.role == "province_admin"
+            and admin.province_code
+            and sp.province_code
+            and sp.province_code != admin.province_code
+        ):
+            raise HTTPException(status_code=403, detail="只能合并本省发音人")
+
+    moved_rec = removed_rec = moved_claim = removed_claim = moved_agreement = removed_agreement = 0
+
+    # —— Recording：迁移 speaker_id，同 (task, word) 冲突按状态保留策略去重 ——
+    target_recs = {
+        (r.task_id, r.word_id): r
+        for r in db.query(Recording).filter(Recording.speaker_id == keep.id).all()
+    }
+    for r in db.query(Recording).filter(Recording.speaker_id == remove.id).all():
+        key = (r.task_id, r.word_id)
+        existing = target_recs.get(key)
+        if existing is None:
+            r.speaker_id = keep.id
+            target_recs[key] = r
+            moved_rec += 1
+        else:
+            better = _pick_better_recording(existing, r)
+            loser = existing if better is r else r
+            storage.delete_object(loser.audio_url)  # 淘汰者连带清理存储
+            db.delete(loser)
+            better.speaker_id = keep.id  # 胜者（无论原属哪方）统一归到 keep，避免孤儿引用
+            target_recs[key] = better
+            removed_rec += 1
+
+    # —— TaskClaim：迁移，同 (task, word) keep 已领则删 remove 的 ——
+    keep_claim_keys = {
+        (cl.task_id, cl.word_id)
+        for cl in db.query(TaskClaim).filter(TaskClaim.speaker_id == keep.id).all()
+    }
+    for cl in db.query(TaskClaim).filter(TaskClaim.speaker_id == remove.id).all():
+        key = (cl.task_id, cl.word_id)
+        if key in keep_claim_keys:
+            db.delete(cl)
+            removed_claim += 1
+        else:
+            cl.speaker_id = keep.id
+            keep_claim_keys.add(key)
+            moved_claim += 1
+
+    # —— SpeakerAgreement：迁移，同 type 保留 version 大者 ——
+    keep_agreements = {
+        ag.type: ag
+        for ag in db.query(SpeakerAgreement).filter(SpeakerAgreement.speaker_id == keep.id).all()
+    }
+    for ag in db.query(SpeakerAgreement).filter(SpeakerAgreement.speaker_id == remove.id).all():
+        existing = keep_agreements.get(ag.type)
+        if existing is None:
+            ag.speaker_id = keep.id
+            keep_agreements[ag.type] = ag
+            moved_agreement += 1
+        elif (ag.version or 0) > (existing.version or 0):
+            # keep 已有同型但版本更低：原地升级 keep 的行并删 remove 的，
+            # 避免「改挂 ag.speaker_id 再删 existing」撞 UNIQUE(speaker_id, type) 的暂态冲突。
+            existing.version = ag.version
+            existing.accepted_at = ag.accepted_at
+            db.delete(ag)
+            keep_agreements[ag.type] = existing
+            removed_agreement += 1
+        else:
+            db.delete(ag)
+            removed_agreement += 1
+
+    # remove 的 device_id/openid 置空绕过唯一约束，删除 + 清头像文件（commit 后）
+    remove.device_id = None
+    remove.openid = None
+    db.delete(remove)
+    db.commit()
+    if remove.avatar_url and remove.avatar_url.startswith("/media/avatars/"):
+        avatar_path = Path(settings.MEDIA_ROOT) / remove.avatar_url.removeprefix("/media/")
+        try:
+            if avatar_path.is_file():
+                avatar_path.unlink()
+        except OSError:
+            pass
+    return {
+        "detail": "已合并",
+        "moved_recordings": moved_rec,
+        "removed_recordings": removed_rec,
+        "moved_claims": moved_claim,
+        "removed_claims": removed_claim,
+        "moved_agreements": moved_agreement,
+        "removed_agreements": removed_agreement,
+    }

@@ -52,9 +52,10 @@
         <el-table-column prop="created_at" label="导入时间" width="170">
           <template #default="{ row }">{{ row.created_at?.slice(0, 16) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="warning" @click="openMerge(row)">合并</el-button>
             <el-button link type="danger" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -102,6 +103,40 @@
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 合并对话框 -->
+    <el-dialog v-model="mergeVisible" title="合并词条" width="540px">
+      <p class="merge-tip">
+        将把词条 <b>「{{ mergeRow?.content }}」</b>（#{{ mergeRow?.id }}）合并到下方选中的目标词条：
+        其录音 / 领取 / 任务引用将转入目标，当前词条被删除。合并不可撤销。
+      </p>
+      <el-form label-width="70px">
+        <el-form-item label="目标词条">
+          <el-select
+            v-model="mergeTarget"
+            placeholder="输入编号 / 词条 / 方言点搜索"
+            filterable
+            remote
+            clearable
+            :remote-method="searchMergeWords"
+            :loading="mergeLoading"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="w in mergeOptions"
+              :key="w.id"
+              :value="w.id"
+              :disabled="w.id === mergeRow?.id"
+              :label="`#${w.id} ${w.content}${w.code ? '（' + w.code + '）' : ''}${w.dialect_point ? ' @' + w.dialect_point : ''}`"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="mergeVisible = false">取消</el-button>
+        <el-button type="danger" :loading="merging" :disabled="!mergeTarget" @click="doMerge">合并</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -127,6 +162,13 @@ const editVisible = ref(false)
 const editForm = reactive({ id: null, code: '', dialect_point: '', content: '', example_sentence: '', pronunciation_hint: '', remark: '' })
 const editRegion = ref([])
 const editRegionTouched = ref(false)
+
+const mergeVisible = ref(false)
+const mergeRow = ref(null)
+const mergeOptions = ref([])
+const mergeTarget = ref(null)
+const mergeLoading = ref(false)
+const merging = ref(false)
 
 function regionName(code) {
   return regionStore.nameOf(code)
@@ -192,12 +234,27 @@ function onDialectPointInput() {
 }
 
 async function save() {
+  const content = editForm.content.trim()
+  // 查重提示（仅提示不拦截：方言词同词异音可能合法，用户确认后可继续保存）
+  if (content) {
+    const dup = await request.get('/words/check-duplicate', { params: { content, exclude_word_id: editForm.id } })
+    if (dup.duplicate) {
+      const hit = dup.word
+      const tip = `已存在相同内容词条 #${hit.id}「${hit.content}」${hit.dialect_point ? '（' + hit.dialect_point + '）' : ''}，仍要保存吗？`
+      try {
+        await ElMessageBox.confirm(tip, '查重提示', { type: 'warning', confirmButtonText: '仍要保存', cancelButtonText: '取消' })
+      } catch (e) {
+        return // 用户取消
+      }
+    }
+  }
+
   saving.value = true
   try {
     const body = {
       code: editForm.code,
       dialect_point: editForm.dialect_point,
-      content: editForm.content,
+      content,
       example_sentence: editForm.example_sentence,
       pronunciation_hint: editForm.pronunciation_hint,
       remark: editForm.remark
@@ -214,6 +271,43 @@ async function save() {
     load()
   } finally {
     saving.value = false
+  }
+}
+
+function openMerge(row) {
+  mergeRow.value = row
+  mergeTarget.value = null
+  mergeOptions.value = []
+  mergeVisible.value = true
+}
+
+async function searchMergeWords(query) {
+  if (!query) {
+    mergeOptions.value = []
+    return
+  }
+  mergeLoading.value = true
+  try {
+    const data = await request.get('/words', { params: { keyword: query, page: 1, page_size: 20 } })
+    mergeOptions.value = data.items
+  } finally {
+    mergeLoading.value = false
+  }
+}
+
+async function doMerge() {
+  if (!mergeTarget.value) return
+  merging.value = true
+  try {
+    const r = await request.post('/words/merge', {
+      keep_word_id: mergeTarget.value,
+      remove_word_id: mergeRow.value.id
+    })
+    ElMessage.success(`已合并：迁移录音 ${r.moved_recordings} 条、领取 ${r.moved_claims} 条、任务条目 ${r.moved_items} 条，剔除冲突 ${r.removed_recordings + r.removed_claims + r.removed_items} 条`)
+    mergeVisible.value = false
+    load()
+  } finally {
+    merging.value = false
   }
 }
 
@@ -243,5 +337,11 @@ onMounted(async () => {
 .pager {
   margin-top: 14px;
   justify-content: flex-end;
+}
+.merge-tip {
+  margin: 0 0 14px;
+  color: #606266;
+  font-size: 13px;
+  line-height: 1.6;
 }
 </style>

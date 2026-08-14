@@ -53,10 +53,11 @@
         <el-table-column prop="created_at" label="建档时间" width="170">
           <template #default="{ row }">{{ row.created_at?.slice(0, 16) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">明细</el-button>
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="warning" @click="openMerge(row)">合并</el-button>
             <el-button link type="danger" @click="removeSpeaker(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -123,6 +124,40 @@
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 合并发音人对话框 -->
+    <el-dialog v-model="mergeVisible" title="合并发音人" width="540px">
+      <p class="merge-tip">
+        将把发音人 <b>「{{ mergeRow?.nickname || mergeRow?.device_id || ('#' + mergeRow?.id) }}」</b>（#{{ mergeRow?.id }}）合并到下方选中的目标发音人：
+        其录音 / 领取 / 协议将转入目标，本发音人被删除。合并不可撤销。
+      </p>
+      <el-form label-width="70px">
+        <el-form-item label="目标发音人">
+          <el-select
+            v-model="mergeTarget"
+            placeholder="输入昵称 / 设备ID / openid 搜索"
+            filterable
+            remote
+            clearable
+            :remote-method="searchMergeSpeakers"
+            :loading="mergeLoading"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="s in mergeOptions"
+              :key="s.id"
+              :value="s.id"
+              :disabled="s.id === mergeRow?.id"
+              :label="`#${s.id} ${s.nickname || '(无昵称)'}${s.device_id ? '（' + s.device_id + '）' : ''}${s.province_code ? ' @' + regionName(s.province_code) : ''}`"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="mergeVisible = false">取消</el-button>
+        <el-button type="danger" :loading="merging" :disabled="!mergeTarget" @click="doMerge">合并</el-button>
       </template>
     </el-dialog>
 
@@ -291,6 +326,13 @@ const editVisible = ref(false)
 const editForm = reactive({ id: null, nickname: '', gender: '', age_bracket: '', province_code: '', city_code: '', team_code: '' })
 const origProvince = ref('')
 const origCity = ref('')
+
+const mergeVisible = ref(false)
+const mergeRow = ref(null)
+const mergeOptions = ref([])
+const mergeTarget = ref(null)
+const mergeLoading = ref(false)
+const merging = ref(false)
 
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -542,6 +584,43 @@ async function removeSpeaker(row) {
   load()
 }
 
+function openMerge(row) {
+  mergeRow.value = row
+  mergeTarget.value = null
+  mergeOptions.value = []
+  mergeVisible.value = true
+}
+
+async function searchMergeSpeakers(query) {
+  if (!query) {
+    mergeOptions.value = []
+    return
+  }
+  mergeLoading.value = true
+  try {
+    const data = await request.get('/speakers', { params: { keyword: query, page: 1, page_size: 20 } })
+    mergeOptions.value = data.items
+  } finally {
+    mergeLoading.value = false
+  }
+}
+
+async function doMerge() {
+  if (!mergeTarget.value) return
+  merging.value = true
+  try {
+    const r = await request.post('/speakers/merge', {
+      keep_speaker_id: mergeTarget.value,
+      remove_speaker_id: mergeRow.value.id
+    })
+    ElMessage.success(`已合并：迁移录音 ${r.moved_recordings} 条、领取 ${r.moved_claims} 条、协议 ${r.moved_agreements} 条，剔除冲突 ${r.removed_recordings + r.removed_claims + r.removed_agreements} 条`)
+    mergeVisible.value = false
+    load()
+  } finally {
+    merging.value = false
+  }
+}
+
 onMounted(async () => {
   await regionStore.ensureLoaded()
   load()
@@ -641,5 +720,11 @@ onMounted(async () => {
   width: 210px;
   height: 32px;
   vertical-align: middle;
+}
+.merge-tip {
+  margin: 0 0 14px;
+  color: #606266;
+  font-size: 13px;
+  line-height: 1.6;
 }
 </style>

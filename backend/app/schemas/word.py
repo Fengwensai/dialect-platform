@@ -32,3 +32,10 @@ class WordUpdate(BaseModel):
     city_code: str | None = None
     district_code: str | None = None
     status: str | None = None  # active 启用 / disabled 禁用
+
+
+class WordMergeRequest(BaseModel):
+    """词条合并：keep 保留，remove 的数据并入 keep 后删除 remove。"""
+
+    keep_word_id: int
+    remove_word_id: int

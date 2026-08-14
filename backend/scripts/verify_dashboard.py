@@ -84,6 +84,23 @@ def get(base, key, default):
     return base[key] if key in base else default
 
 
+def snap_trends(db, scope, days):
+    """与 dashboard.trends 同口径：近 days 天各状态录音数（按属地钳制）。"""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    rec_q = db.query(Recording).join(Speaker, Recording.speaker_id == Speaker.id)
+    if scope:
+        rec_q = rec_q.filter(Speaker.province_code == scope)
+    rows = rec_q.filter(Recording.created_at >= cutoff).with_entities(
+        Recording.status, func.count(Recording.id)).group_by(Recording.status).all()
+    counts = {st: cnt for st, cnt in rows}
+    return {
+        "total": sum(counts.values()),
+        "pending": counts.get("pending", 0),
+        "approved": counts.get("approved", 0),
+        "rejected": counts.get("rejected", 0),
+    }
+
+
 def main():
     c = TestClient(app)
     db = SessionLocal()
@@ -106,6 +123,10 @@ def main():
         # —— 基线快照 ——
         base_super = snap_summary(db, None)
         base_hb = snap_summary(db, HB_PROV)
+        base_tr_s7 = snap_trends(db, None, 7)
+        base_tr_s30 = snap_trends(db, None, 30)
+        base_tr_hb7 = snap_trends(db, HB_PROV, 7)
+        base_tr_hb30 = snap_trends(db, HB_PROV, 30)
 
         # —— 1. 词条 5 条（河北 3 + 北京 2；w_hb3 仅供领取未录制）——
         words = []
@@ -374,6 +395,81 @@ def main():
         check("省管看北京发音人 claims → 403", r.status_code == 403, str(r.status_code))
         r = c.get("/api/dashboard/speakers/999999/claims", headers=SUPER)
         check("不存在的发音人 claims → 404", r.status_code == 404, str(r.status_code))
+
+        # ================= trends =================
+        def trends(headers, days):
+            return c.get("/api/dashboard/trends", headers=headers, params={"days": days}).json()
+
+        t7 = trends(SUPER, 7)
+        check("trends(7) 新增录音 +5",
+              t7["new_recordings"] == base_tr_s7["total"] + 5, f"{t7['new_recordings']}")
+        check("trends(7) 状态增量 +1pending/+3approved/+1rejected",
+              t7["pending"] == base_tr_s7["pending"] + 1
+              and t7["approved"] == base_tr_s7["approved"] + 3
+              and t7["rejected"] == base_tr_s7["rejected"] + 1,
+              f"p={t7['pending']} a={t7['approved']} r={t7['rejected']}")
+        exp_rate = (base_tr_s7["approved"] + 3) / max(
+            base_tr_s7["approved"] + 3 + base_tr_s7["rejected"] + 1, 1)
+        check("trends(7) 通过率 = approved/(approved+rejected)",
+              abs(t7["approval_rate"] - exp_rate) < 1e-9, f"{t7['approval_rate']} vs {exp_rate}")
+        t30 = trends(SUPER, 30)
+        check("trends(30) 新增录音 +5",
+              t30["new_recordings"] == base_tr_s30["total"] + 5, f"{t30['new_recordings']}")
+        thb = trends(HB, 7)
+        check("省管 trends(7) 新增录音 +3（排除北京）",
+              thb["new_recordings"] == base_tr_hb7["total"] + 3, f"{thb['new_recordings']}")
+        check("省管 trends(7) 状态增量 +1pending/+1approved/+1rejected",
+              thb["pending"] == base_tr_hb7["pending"] + 1
+              and thb["approved"] == base_tr_hb7["approved"] + 1
+              and thb["rejected"] == base_tr_hb7["rejected"] + 1,
+              f"p={thb['pending']} a={thb['approved']} r={thb['rejected']}")
+        r = c.get("/api/dashboard/trends", headers=SUPER, params={"days": 999})
+        check("trends days 越界 → 422", r.status_code == 422, str(r.status_code))
+
+        # ================= dashboard/words（词条采集难度） =================
+        def word_map(headers, **params):
+            d = c.get("/api/dashboard/words", headers=headers,
+                      params={"page_size": 200, **params}).json()
+            return {x["code"]: x for x in d["items"]}
+
+        wmap = word_map(SUPER, sort_by="reject")
+        check("dashboard/words 含种子词条",
+              wmap.get("VFY-DASH-HB1") and wmap.get("VFY-DASH-BJ1"),
+              f"codes={list(wmap)[:5]}")
+        whb1 = wmap["VFY-DASH-HB1"]
+        check("w_hb1 难度快照正确（录音2/通过1/驳回1/各率0.5）",
+              whb1["recording_total"] == 2 and whb1["approved"] == 1 and whb1["rejected"] == 1
+              and abs(whb1["approval_rate"] - 0.5) < 1e-9
+              and abs(whb1["reject_rate"] - 0.5) < 1e-9
+              and whb1["content"] == "看板河北词1" and whb1["dialect_point"] == "测试点",
+              f"{whb1}")
+        check("w_hb2 仅待审（1 条 pending）",
+              wmap["VFY-DASH-HB2"]["recording_total"] == 1
+              and wmap["VFY-DASH-HB2"]["pending"] == 1
+              and wmap["VFY-DASH-HB2"]["rejected"] == 0,
+              f"{wmap['VFY-DASH-HB2']}")
+        check("w_hb3 无录音（仅被领取）",
+              wmap["VFY-DASH-HB3"]["recording_total"] == 0
+              and wmap["VFY-DASH-HB3"]["rejected"] == 0
+              and wmap["VFY-DASH-HB3"]["approval_rate"] == 0.0,
+              f"{wmap['VFY-DASH-HB3']}")
+        check("w_bj1 全部通过",
+              wmap["VFY-DASH-BJ1"]["recording_total"] == 1
+              and wmap["VFY-DASH-BJ1"]["approved"] == 1
+              and wmap["VFY-DASH-BJ1"]["rejected"] == 0,
+              f"{wmap['VFY-DASH-BJ1']}")
+        all_items = c.get("/api/dashboard/words", headers=SUPER,
+                          params={"page_size": 200, "sort_by": "reject"}).json()["items"]
+        seed_rank = [x["code"] for x in all_items if x["code"].startswith("VFY-DASH")]
+        check("sort=reject 驳回多者在前（HB1 首个）",
+              seed_rank[0] == "VFY-DASH-HB1", f"{seed_rank}")
+        wmap_hb = word_map(HB, sort_by="reject")
+        check("省管 dashboard/words 仅本省词条",
+              {"VFY-DASH-HB1", "VFY-DASH-HB2", "VFY-DASH-HB3"} <= set(wmap_hb)
+              and not any(k.startswith("VFY-DASH-BJ") for k in wmap_hb),
+              f"codes={list(wmap_hb)}")
+        r = c.get("/api/dashboard/words", headers=SUPER, params={"sort_by": "bad"})
+        check("dashboard/words 非法 sort_by → 422", r.status_code == 422, str(r.status_code))
 
         # —— 未登录 401 ——
         r = c.get("/api/dashboard/summary")

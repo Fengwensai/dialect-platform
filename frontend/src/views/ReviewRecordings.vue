@@ -121,8 +121,8 @@
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openTrans(row)">转写</el-button>
-            <el-button link type="success" @click="approve(row)">通过</el-button>
-            <el-button link type="danger" @click="reject(row)">驳回</el-button>
+            <el-button v-if="row.status !== 'approved'" link type="success" @click="approve(row)">通过</el-button>
+            <el-button v-if="row.status !== 'rejected'" link type="danger" @click="reject(row)">驳回</el-button>
             <template v-if="row.status === 'rejected'">
               <el-button link type="warning" :icon="RefreshLeft" @click="resetReview(row)">重置</el-button>
               <el-button link type="danger" :icon="Delete" @click="removeRecording(row)">删除</el-button>
