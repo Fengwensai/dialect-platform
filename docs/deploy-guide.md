@@ -275,7 +275,7 @@ done
 | 头像 | 服务器本地 `/data/dialect/media/avatars/` | 体量小，/media 挂载服务 |
 | 数据库 | 服务器本地 PostgreSQL | 建议数据目录也放数据盘 |
 
-- **备份（本地磁盘模式更要勤）**：PG 每天 `pg_dump` 到数据盘并定期下载；`/data/dialect/media/` 随数据盘快照/整机快照一起备份；配了 COS 则桶开版本控制或定期快照。
+- **备份（本地磁盘模式更要勤）**：**已落地** —— `backend/scripts/backup.sh` 每日 cron（03:17）执行，`pg_dump` 全库 + `/data/dialect/media/` 打包 + `.env` 快照到 `/data/dialect/backups`，保留 14 天；还原步骤见 `docs/backup.md`。`/data/dialect/media/` 可另随数据盘快照/整机快照一起备份；配了 COS 则桶开版本控制或定期快照，并建议把备份产物同步到云端异地副本。
 - 未来录音量/流量再大时，COS 可加 CDN 加速（把桶访问权限切 CDN 域名），无需改代码（预签名 URL 域名换 CDN 即可）。
 
 ---

@@ -125,3 +125,4 @@
 - [x] 内容安全接口已确认可用（无需开通）；`WECHAT_APPID / WECHAT_SECRET` 已在 `.env` 配置
 - [ ] **审核前建演示任务**（审核员是全新用户、无团队码，否则任务列表为空录不了音）：后台「任务分配」勾选「演示任务」→ 选 2~3 词条 → 创建并发布；提交审核时备注写明体验步骤。审核通过后跑 `scripts/cleanup_demo_recordings.py [--hard]` 清理（详见 deploy-guide.md §6.0）。本地已用 `scripts/verify_demo_task.py` 端到端验证 11/11：未绑定可见可录、绑定后不可见且 403、真实任务仍按属地隔离
 - [ ] 真机预览/体验版回归一遍上面 3-7 节
+- [x] **每日数据备份已上线**：`backend/scripts/backup.sh` + cron 每日 03:17（`/etc/cron.d/dialect-backup`）→ `/data/dialect/backups`（PG 全库 + 媒体 + `.env` 快照，保留 14 天）；已手动跑 + 灌临时库还原验证一致；后续每次改服务器配置记得复查 `tail -5 /var/log/dialect-backup.log`，详见 `docs/backup.md`
