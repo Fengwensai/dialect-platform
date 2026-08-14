@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from app.db import SessionLocal  # noqa: E402
 from app.models.recording import Recording  # noqa: E402
 from app.models.task import TaskBatch, TaskBatchItem  # noqa: E402
+from app.models.task_claim import TaskClaim  # noqa: E402
 from app.services import storage  # noqa: E402
 
 
@@ -32,6 +33,8 @@ def main():
                 storage.delete_object(r.audio_url)  # COS 对象 / 本地文件，幂等
                 db.delete(r)
                 rec_deleted += 1
+            # 领取制（阶段十一）：演示任务领取一并清空，词条回池（否则复用任务时被旧领取占死）
+            db.query(TaskClaim).filter(TaskClaim.task_id == t.id).delete()
             if hard:
                 db.query(TaskBatchItem).filter(
                     TaskBatchItem.task_batch_id == t.id

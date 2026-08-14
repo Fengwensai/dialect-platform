@@ -38,11 +38,15 @@ from ..models.recording import Recording
 from ..models.region import Region
 from ..models.speaker import Speaker
 from ..models.task import TaskBatch, TaskBatchItem
+from ..models.task_claim import TaskClaim
 from ..models.team_code import TeamCode
 from ..models.word import WordLibrary
 from ..schemas.agreement import AgreementAcceptRequest, MpAcceptOut, MpAgreementOut
 from ..schemas.mp import (
     LoginRequest,
+    MpClaimOut,
+    MpClaimRequest,
+    MpClaimStats,
     MpDurationStats,
     MpOverallProgress,
     MpProgressOut,
@@ -134,6 +138,92 @@ def _speaker_upsert(
     return speaker
 
 
+def _ensure_task_accessible(task: TaskBatch | None, speaker: Speaker) -> TaskBatch:
+    """领取/词条可见性守卫（阶段十一）：发布状态 + 演示/属地隔离，与 mp_task_words 一致。"""
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task.status != "published":
+        raise HTTPException(status_code=400, detail="任务未发布")
+    if task.is_demo:
+        if speaker.province_code and speaker.city_code:
+            raise HTTPException(status_code=403, detail="演示任务仅限未绑定团队的用户体验")
+    else:
+        _bound_or_400(speaker)
+        if not _region_matches(speaker, task):
+            raise HTTPException(status_code=403, detail="该任务不属于你所在地区")
+    return task
+
+
+def _claim_speaker(
+    db: Session,
+    current_speaker: Speaker | None,
+    device_id: str | None,
+) -> Speaker:
+    """领取身份解析：token 优先，无 token 按 device_id 建档（与上传同一套，保证后续上传守卫命中）。"""
+    if current_speaker is not None:
+        return current_speaker
+    return _speaker_upsert(db, device_id, None)
+
+
+def _resolve_claim_actor(
+    db: Session,
+    current_speaker: Speaker | None,
+    device_id: str | None,
+) -> Speaker:
+    """领取接口公共身份守卫：解析发音人 + 登录身份未同意最新协议则 403（匿名路径不拦，与上传一致）。"""
+    speaker = _claim_speaker(db, current_speaker, device_id)
+    if current_speaker is not None and pending_agreement_types(db, speaker.id):
+        raise HTTPException(status_code=403, detail=GUARD_DETAIL)
+    return speaker
+
+
+def _task_pool(db: Session, task_id: int) -> tuple[int, list[int]]:
+    """任务词条池：active 词条的去重 id（按 word_id 升序），返回 (count, ids)。"""
+    rows = (
+        db.query(TaskBatchItem.word_id)
+        .join(WordLibrary, WordLibrary.id == TaskBatchItem.word_id)
+        .filter(
+            TaskBatchItem.task_batch_id == task_id,
+            WordLibrary.status == "active",
+        )
+        .distinct()
+        .order_by(TaskBatchItem.word_id)
+        .all()
+    )
+    ids = [r[0] for r in rows]
+    return len(ids), ids
+
+
+def _claim_stats(db: Session, task: TaskBatch, speaker: Speaker) -> MpClaimStats:
+    """当前发音人在某任务的领取统计（词条池视角）。"""
+    pool, _ = _task_pool(db, task.id)
+    claimed_ids = [
+        r[0]
+        for r in db.query(TaskClaim.word_id)
+        .filter(TaskClaim.task_id == task.id)
+        .all()
+    ]
+    my_ids = [
+        r[0]
+        for r in db.query(TaskClaim.word_id)
+        .filter(TaskClaim.task_id == task.id, TaskClaim.speaker_id == speaker.id)
+        .order_by(TaskClaim.word_id)
+        .all()
+    ]
+    my_claimed = len(my_ids)
+    available = max(0, pool - len(claimed_ids))
+    cap = task.claim_limit if (task.claim_limit and task.claim_limit > 0) else pool
+    claimable = max(0, min(cap - my_claimed, available))
+    return MpClaimStats(
+        task_word_total=pool,
+        claim_limit=task.claim_limit,
+        my_claimed=my_claimed,
+        claimable=claimable,
+        available=available,
+        my_claim_word_ids=my_ids,
+    )
+
+
 @router.post("/recordings", response_model=RecordingOut)
 async def upload_recording(
     background_tasks: BackgroundTasks,
@@ -205,6 +295,24 @@ async def upload_recording(
         _bound_or_400(speaker)
         if not _region_matches(speaker, task):
             raise HTTPException(status_code=403, detail="只能上传本团队所属地区的任务")
+
+    # 5.6 领取制守卫（阶段十一）：只能上传「本人领取」的词条，否则词条不归该发音人专有。
+    #     顺序必须在属地隔离之后（保 verify_demo_task 的 400/403 语义）、限流之前
+    #     （未领取的 403 不消耗限流配额）。
+    claim = (
+        db.query(TaskClaim)
+        .filter(
+            TaskClaim.task_id == task_id,
+            TaskClaim.word_id == word_id,
+            TaskClaim.speaker_id == speaker.id,
+        )
+        .first()
+    )
+    if claim is None:
+        raise HTTPException(
+            status_code=403,
+            detail="该词条未被你领取，请先在任务页领取",
+        )
 
     # 5.5 上传频率限流（按发音人）：窗口内超限 429，客户端稍后重试（小程序有本地队列缓冲）。
     if not rate_limit.consume(
@@ -589,8 +697,38 @@ def mp_tasks(
             .group_by(Recording.task_id)
             .all()
         )
+        # 领取制（阶段十一）：词条池（active 去重）、全任务已领、我当前已领
+        pool_counts = dict(
+            db.query(
+                TaskBatchItem.task_batch_id,
+                func.count(func.distinct(WordLibrary.id)),
+            )
+            .join(WordLibrary, WordLibrary.id == TaskBatchItem.word_id)
+            .filter(
+                TaskBatchItem.task_batch_id.in_(ids),
+                WordLibrary.status == "active",
+            )
+            .group_by(TaskBatchItem.task_batch_id)
+            .all()
+        )
+        claimed_counts = dict(
+            db.query(TaskClaim.task_id, func.count(TaskClaim.id))
+            .filter(TaskClaim.task_id.in_(ids))
+            .group_by(TaskClaim.task_id)
+            .all()
+        )
+        my_claim_counts = dict(
+            db.query(TaskClaim.task_id, func.count(TaskClaim.id))
+            .filter(
+                TaskClaim.task_id.in_(ids),
+                TaskClaim.speaker_id == speaker.id,
+            )
+            .group_by(TaskClaim.task_id)
+            .all()
+        )
     else:
         word_counts, rec_counts, rej_counts = {}, {}, {}
+        pool_counts, claimed_counts, my_claim_counts = {}, {}, {}
 
     items = []
     for b in batches:
@@ -598,6 +736,14 @@ def mp_tasks(
         out.word_count = word_counts.get(b.id, 0)
         out.recorded_count = rec_counts.get(b.id, 0)
         out.rejected_count = rej_counts.get(b.id, 0)
+        pool = pool_counts.get(b.id, 0)
+        my_claimed = my_claim_counts.get(b.id, 0)
+        available = max(0, pool - claimed_counts.get(b.id, 0))
+        cap = b.claim_limit if (b.claim_limit and b.claim_limit > 0) else pool
+        out.claim_limit = b.claim_limit
+        out.my_claimed = my_claimed
+        out.available = available
+        out.claimable = max(0, min(cap - my_claimed, available))
         items.append(out)
     return {"total": total, "items": items}
 
@@ -608,24 +754,21 @@ def mp_task_words(
     db: Session = Depends(get_db),
     speaker: Speaker = Depends(require_agreements_accepted),
 ):
-    """任务词条列表：附当前发音人每条已录状态，供逐条朗读。
+    """任务词条列表（领取制，阶段十一）：只返回**当前发音人已领取**的词条，附已录状态。
 
+    未领取前返回空列表 + 领取统计（claim），前端据此引导「先去领取」。
     阶段八隔离：非本地区任务直接 403，防止通过任务 ID 越权查看/录制。
-    演示任务（is_demo）：仅未绑定团队的发音人可体验（审核/演示）；已绑定用户一律 403，
-    演示数据与真实用户完全隔离。
     """
     task = db.get(TaskBatch, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    if task.status != "published":
-        raise HTTPException(status_code=400, detail="任务未发布")
-    if task.is_demo:
-        if speaker.province_code and speaker.city_code:
-            raise HTTPException(status_code=403, detail="演示任务仅限未绑定团队的用户体验")
-    else:
-        _bound_or_400(speaker)
-        if not _region_matches(speaker, task):
-            raise HTTPException(status_code=403, detail="该任务不属于你所在地区")
+    _ensure_task_accessible(task, speaker)
+
+    my_claim_ids = [
+        r[0]
+        for r in db.query(TaskClaim.word_id)
+        .filter(TaskClaim.task_id == task_id, TaskClaim.speaker_id == speaker.id)
+        .all()
+    ]
+    my_claim_set = set(my_claim_ids)
 
     items_q = (
         db.query(TaskBatchItem)
@@ -655,7 +798,7 @@ def mp_task_words(
     out_items = []
     for it in items_q:
         w = word_map.get(it.word_id)
-        if w is None:
+        if w is None or it.word_id not in my_claim_set:
             continue
         r = rec_map.get(it.word_id)
         out_items.append(
@@ -677,7 +820,136 @@ def mp_task_words(
         "task": MpTaskSummary.model_validate(task),
         "total": len(out_items),
         "items": out_items,
+        "claim": _claim_stats(db, task, speaker),
     }
+
+
+@router.get("/tasks/{task_id}/claims", response_model=MpClaimStats)
+def my_claims(
+    task_id: int,
+    device_id: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_speaker: Speaker | None = Depends(get_current_speaker_optional),
+):
+    """我的领取统计（领取制）：任务词条池视角。"""
+    speaker = _resolve_claim_actor(db, current_speaker, device_id)
+    task = db.get(TaskBatch, task_id)
+    _ensure_task_accessible(task, speaker)
+    return _claim_stats(db, task, speaker)
+
+
+@router.post("/tasks/{task_id}/claims", response_model=MpClaimOut)
+def claim_words(
+    task_id: int,
+    body: MpClaimRequest,
+    db: Session = Depends(get_db),
+    current_speaker: Speaker | None = Depends(get_current_speaker_optional),
+):
+    """领取词条（领取制）：count 模式自动按 word_id 取前 N 条；word_ids 模式精确领取。
+
+    原子性：事务内 SELECT ... FOR UPDATE 锁任务行，串行化同任务并发领取；
+    锁内预计算可领数，插完即 commit，无需重试。
+    """
+    if (body.count is None) == (body.word_ids is None):
+        raise HTTPException(status_code=422, detail="count 与 word_ids 二选一且必填")
+    requested = len(body.word_ids) if body.word_ids is not None else (body.count or 0)
+    if requested <= 0:
+        raise HTTPException(status_code=422, detail="领取条数必须 ≥ 1")
+
+    speaker = _resolve_claim_actor(db, current_speaker, body.device_id)
+    task = (
+        db.query(TaskBatch)
+        .filter(TaskBatch.id == task_id)
+        .with_for_update()
+        .first()
+    )
+    _ensure_task_accessible(task, speaker)
+
+    _, pool_ids = _task_pool(db, task_id)
+    claimed_ids = [
+        r[0]
+        for r in db.query(TaskClaim.word_id)
+        .filter(TaskClaim.task_id == task_id)
+        .all()
+    ]
+    claimed_set = set(claimed_ids)
+    my_claimed = (
+        db.query(func.count(TaskClaim.id))
+        .filter(TaskClaim.task_id == task_id, TaskClaim.speaker_id == speaker.id)
+        .scalar()
+    )
+    available = max(0, len(pool_ids) - len(claimed_ids))
+    cap = (
+        task.claim_limit
+        if (task.claim_limit and task.claim_limit > 0)
+        else len(pool_ids)
+    )
+    claimable = max(0, min(cap - my_claimed, available))
+
+    if body.word_ids is not None:
+        if len(body.word_ids) != len(set(body.word_ids)):
+            raise HTTPException(status_code=422, detail="word_ids 存在重复")
+        pool_set = set(pool_ids)
+        bad = [w for w in body.word_ids if w not in pool_set]
+        taken = [w for w in body.word_ids if w in claimed_set]
+        if bad or taken or len(body.word_ids) > claimable:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="部分词条不可领取（已领/不属于本任务/超上限），请刷新后重试",
+            )
+        new_ids = body.word_ids
+    else:
+        take = min(requested, claimable)
+        new_ids = [w for w in pool_ids if w not in claimed_set][:take]
+        if len(new_ids) == 0:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="当前无可领取词条或已达领取上限")
+
+    for wid in new_ids:
+        db.add(TaskClaim(task_id=task_id, word_id=wid, speaker_id=speaker.id))
+    db.commit()
+    return MpClaimOut(claimed_word_ids=new_ids, stats=_claim_stats(db, task, speaker))
+
+
+@router.delete("/tasks/{task_id}/claims/{word_id}", response_model=MpClaimStats)
+def release_claim(
+    task_id: int,
+    word_id: int,
+    device_id: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_speaker: Speaker | None = Depends(get_current_speaker_optional),
+):
+    """自退已领取但未录制的词条（退回后别人可领）；已录制 400。"""
+    speaker = _resolve_claim_actor(db, current_speaker, device_id)
+    task = db.get(TaskBatch, task_id)
+    _ensure_task_accessible(task, speaker)
+    claim = (
+        db.query(TaskClaim)
+        .filter(
+            TaskClaim.task_id == task_id,
+            TaskClaim.word_id == word_id,
+            TaskClaim.speaker_id == speaker.id,
+        )
+        .with_for_update()
+        .first()
+    )
+    if claim is None:
+        raise HTTPException(status_code=404, detail="该词条未被你领取")
+    rec = (
+        db.query(Recording)
+        .filter(
+            Recording.task_id == task_id,
+            Recording.word_id == word_id,
+            Recording.speaker_id == speaker.id,
+        )
+        .first()
+    )
+    if rec is not None:
+        raise HTTPException(status_code=400, detail="已录制不能退回")
+    db.delete(claim)
+    db.commit()
+    return _claim_stats(db, task, speaker)
 
 
 @router.get("/recordings/progress", response_model=MpProgressOut)

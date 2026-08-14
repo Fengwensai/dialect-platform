@@ -24,6 +24,7 @@ from app.main import app  # noqa: E402
 from app.models.recording import Recording  # noqa: E402
 from app.models.speaker import Speaker  # noqa: E402
 from app.models.task import TaskBatch, TaskBatchItem  # noqa: E402
+from app.models.task_claim import TaskClaim  # noqa: E402
 from app.models.word import WordLibrary  # noqa: E402
 from app.services import rate_limit  # noqa: E402
 
@@ -56,10 +57,12 @@ def accept_all(c, headers):
 def cleanup(db):
     for sp in db.query(Speaker).filter(Speaker.device_id == DEVICE).all():
         db.query(Recording).filter(Recording.speaker_id == sp.id).delete()
+        db.query(TaskClaim).filter(TaskClaim.speaker_id == sp.id).delete()
         db.execute(text("DELETE FROM speaker_agreements WHERE speaker_id = :sid"), {"sid": sp.id})
         db.delete(sp)
     for t in db.query(TaskBatch).filter(TaskBatch.name.like("验证限流%")).all():
         db.query(Recording).filter(Recording.task_id == t.id).delete()
+        db.query(TaskClaim).filter(TaskClaim.task_id == t.id).delete()
         db.query(TaskBatchItem).filter(TaskBatchItem.task_batch_id == t.id).delete()
         db.delete(t)
     db.query(WordLibrary).filter(WordLibrary.code.like("VFY-R%")).delete()
@@ -104,6 +107,13 @@ def main():
         SP = {"Authorization": "Bearer " + create_access_token(
             {"speaker_id": sp.id, "openid": "", "role": "speaker"})}
         accept_all(c, SP)
+
+        # —— 1.5 领取制：限流前先领取该词条（否则上传 403 拦在限流之前）——
+        r = c.post(f"/api/mp/tasks/{task_id}/claims", headers=SP,
+                   json={"word_ids": [w.id]})
+        check("限流前领取词条", r.status_code == 200
+              and w.id in r.json().get("claimed_word_ids", []),
+              str(r.status_code) + " " + str(r.json()))
 
         wav = make_wav()
         codes = []

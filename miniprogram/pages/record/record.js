@@ -24,6 +24,7 @@ Page({
     taskOptions: [],
     taskIndex: -1,
     wordOptions: [],
+    pickClaim: null, // 选中任务的领取统计（空池 CTA 用）
     taskId: '',
     wordId: '',
     content: '',
@@ -88,7 +89,7 @@ Page({
     const idx = Number(e.currentTarget.dataset.index)
     const task = this.data.taskOptions[idx]
     if (!task) return
-    this.setData({ taskIndex: idx, wordOptions: [] })
+    this.setData({ taskIndex: idx, wordOptions: [], pickClaim: null })
     api
       .request('/api/mp/tasks/' + task.id + '/words')
       .then((data) => {
@@ -96,11 +97,19 @@ Page({
           const c = chipOf(w)
           return Object.assign({}, w, { chip: c.cls, chipText: c.text })
         })
-        this.setData({ wordOptions: items })
+        // 领取制：/words 只返回我领取的词条，没领时给出空池 CTA
+        this.setData({ wordOptions: items, pickClaim: data.claim || null })
       })
       .catch((err) =>
         wx.showToast({ title: (err && err.message) || '词条加载失败', icon: 'none' })
       )
+  },
+
+  // 空池 CTA：去任务词条页领取后再回来录音
+  goClaim(e) {
+    const taskId = e.currentTarget.dataset.id
+    if (!taskId) return
+    wx.navigateTo({ url: '/pages/words/words?taskId=' + taskId })
   },
 
   onPickWord(e) {

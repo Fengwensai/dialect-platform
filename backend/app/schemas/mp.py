@@ -80,6 +80,11 @@ class MpTaskOut(BaseModel):
     word_count: int = 0
     recorded_count: int = 0
     rejected_count: int = 0  # 需重录（被驳回）的去重词条数
+    # 领取制（阶段十一）
+    claim_limit: int = 10  # 每人领取上限
+    my_claimed: int = 0  # 我当前已领取词条数
+    claimable: int = 0  # 我还能领多少（=max(0,min(claim_limit-my_claimed, available))）
+    available: int = 0  # 剩余未领词条数
 
 
 class MpTaskSummary(BaseModel):
@@ -88,6 +93,7 @@ class MpTaskSummary(BaseModel):
     id: int
     name: str
     required_audio_count: int
+    claim_limit: int = 10
 
 
 class MpWordOut(BaseModel):
@@ -102,6 +108,35 @@ class MpWordOut(BaseModel):
     recorded: bool = False
     recording_id: int | None = None
     status: str | None = None  # 该词条最新录音状态：pending/approved/rejected；未录为 None
+
+
+class MpClaimStats(BaseModel):
+    """领取统计（任务词条池视角，按当前发音人）。"""
+
+    task_word_total: int = 0  # 任务词条总数（active）
+    claim_limit: int = 10
+    my_claimed: int = 0  # 我当前已领取条数
+    claimable: int = 0  # 我还能领多少
+    available: int = 0  # 剩余未领条数
+    my_claim_word_ids: list[int] = []  # 我领取的词条 id
+
+
+class MpClaimRequest(BaseModel):
+    """领取请求：count（自动按 word_id 取前 N 条）与 word_ids（精确领取）二选一。
+
+    两者都传时优先 word_ids；都不传 → 422。device_id 供匿名（无 token）路径建档用。
+    """
+
+    count: int | None = None
+    word_ids: list[int] | None = None
+    device_id: str | None = None
+
+
+class MpClaimOut(BaseModel):
+    """领取/退回后的响应。"""
+
+    claimed_word_ids: list[int] = []
+    stats: MpClaimStats
 
 
 class MpProgressOut(BaseModel):

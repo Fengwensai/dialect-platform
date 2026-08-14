@@ -226,6 +226,10 @@ GET /api/mp/tasks?page=1&page_size=20
       "city_code": null,
       "district_code": null,
       "required_audio_count": 30,
+      "claim_limit": 10,
+      "my_claimed": 3,
+      "claimable": 7,
+      "available": 20,
       "status": "published",
       "word_count": 35,
       "recorded_count": 12,
@@ -236,7 +240,8 @@ GET /api/mp/tasks?page=1&page_size=20
 ```
 
 - `status` 只返回 `published`；`recorded_count` 为当前用户在该任务的已录条数（去重词条，含待审/已通过/被驳回）；`rejected_count` 为其中被驳回需重录的词条数（用于任务卡提示）。
-- 任务卡**进度条以 `required_audio_count`（需录条数）为目标**：`percent = min(100, round(recorded_count / required_audio_count × 100))`，文案「已录 X / 需录 N 条」，与任务卡顶部「需录 N 条」一致（超录封顶 100%）。
+- **阶段十一领取字段**：`claim_limit` 每人领取上限；`my_claimed` 我已领取数；`claimable` 我还能领多少（= `max(0, min(claim_limit - my_claimed, available))`）；`available` 任务剩余未领条数。任务卡「领取」按钮按 `claimable` 启用。
+- 任务卡**进度条以「已领词条数」为目标**：`percent = min(100, round(recorded_count / max(my_claimed, recorded_count) × 100))`，文案「已录 X / 已领 N 条」；领取制之前的存量录音兜底取大（进度不倒退）。
 - **已关闭（closed）任务不展示**：后台可 `POST /api/tasks/{id}/close` 下架任务，小程序端该任务即刻从列表消失，已采集录音保留；后台可 `POST /api/tasks/{id}/reopen` 重新打开，任务回到 published 后即刻恢复展示。
 - **市级任务不投省级**：仅发布到指定市的市级任务（`city_code` 非空），只对该市绑定发音人可见；未发布到该市的省/区任务对发音人不可见。
 
@@ -250,7 +255,7 @@ GET /api/mp/tasks?page=1&page_size=20
 
 ### ✅ 任务词条列表 `GET /api/mp/tasks/{task_id}/words`（已实现）
 
-登录后拉取某任务的全部词条，供发音人逐条朗读。
+登录后拉取某任务**我已领取**的词条（领取制，阶段十一），供发音人逐条朗读。**一条没领 → 空列表 + `claim` 可领数**（引导先领取）。
 
 ```
 GET /api/mp/tasks/1/words
@@ -261,7 +266,7 @@ GET /api/mp/tasks/1/words
 ```json
 {
   "task": { "id": 1, "name": "河北省核心词任务", "required_audio_count": 30 },
-  "total": 35,
+  "total": 2,
   "items": [
     {
       "word_id": 1,
@@ -276,18 +281,78 @@ GET /api/mp/tasks/1/words
       "recording_id": 101,
       "status": "approved"
     }
-  ]
+  ],
+  "claim": {
+    "task_word_total": 35,
+    "claim_limit": 10,
+    "my_claimed": 2,
+    "claimable": 8,
+    "available": 20,
+    "my_claim_word_ids": [1, 2]
+  }
 }
 ```
 
 - 仅 `published` 任务可拉取（草稿返回 `400 任务未发布`）。
 - **阶段八隔离**：未绑定团队 → `400 请先加入团队（输入团队码）后再操作`；任务不属于发音人属地（省+市任一不符）→ `403 该任务不属于你所在地区`（防止通过任务 ID 越权查看/录制）。
-- **仅返回启用（`active`）词条**：后台可将词条置为 `disabled` 下架（如词条有问题需修正），下架后该词条从任务列表消失、不可再录；已采集录音保留。后台开关接口见 `docs/api.md` §4.2。
+- **仅返回「我已领取」且启用（`active`）的词条**：后台可将词条置为 `disabled` 下架（如词条有问题需修正），下架后该词条从任务列表消失、不可再录；已采集录音保留。后台开关接口见 `docs/api.md` §4.2。
+- `claim` 为领取统计（词条池视角），同 `GET /api/mp/tasks/{task_id}/claims`。
 - `status` 为当前发音人该词条最新录音的审核状态：`pending`（待审核）/ `approved`（已通过）/ `rejected`（需重录）；未录为 `null`。小程序据此渲染：
   - `rejected` → 红色「需重录」标签，提示发音人重录；
   - `approved` → 绿色「已通过」；`pending` → 橙色「待审核」；
   - 重录上传会覆盖旧录音并重置为 `pending`（覆盖策略见 §5）。
 - `mandarin_transcript` / `dialect_transcript`：**审核页填写的转写**（普通话/方言），取自该词条最新录音。小程序对「已通过且有转写」的词条展示转写参考块（参考发音，重录后随覆盖清空）；未录/无转写为 `null`。
+
+### ✅ 领取制：领取 / 我的领取统计 / 自退（阶段十一·已实现）
+
+> **领取制保证多人采集互斥**：主动领取 N 条后这 N 条**归你专有**，其他人不能领/不能录；未录可自退、后台可解绑（`docs/api.md` §6.9/6.10）；可追加领取（累计不超 `claim_limit`）。三个接口均需 `Authorization: Bearer <token>`，可见性规则同 `/words`（published + 属地/演示隔离）。
+
+#### 我的领取统计 `GET /api/mp/tasks/{task_id}/claims`
+
+**响应 200**（`MpClaimStats`，词条池视角）：
+
+```json
+{
+  "task_word_total": 35,
+  "claim_limit": 10,
+  "my_claimed": 3,
+  "claimable": 7,
+  "available": 20,
+  "my_claim_word_ids": [1, 2, 3]
+}
+```
+
+#### 领取词条 `POST /api/mp/tasks/{task_id}/claims`
+
+**请求体**二选一（`count` 与 `word_ids` 都传时优先 `word_ids`）：
+
+```json
+{ "count": 10 }                    // 自动按 word_id 取前 N 条（不越池、不超上限）
+{ "word_ids": [1, 2, 3] }          // 精确领取；任一不可领 → 整单 409
+```
+
+**响应 200**：
+
+```json
+{ "claimed_word_ids": [1, 2, 3], "stats": { /* 同 GET /claims */ } }
+```
+
+**错误**：
+- `422`：`count` 与 `word_ids` 二选一且必填 / `count < 1` / `word_ids` 存在重复
+- `409 {"detail": "部分词条不可领取（已领/不属于本任务/超上限）"}`（word_ids 模式有任一不可领，整单回滚）
+- `409 {"detail": "当前无可领取词条或已达领取上限"}`（count 模式可领为 0）
+
+> 并发安全：服务端 `SELECT ... FOR UPDATE` 锁任务行串行化领取，同一词条不会发给两个人；`UNIQUE(task_id, word_id)` 为最终防线。
+
+#### 自退未录词条 `DELETE /api/mp/tasks/{task_id}/claims/{word_id}`
+
+已领取但**未录制**的词条退回池子（别人可再领）；**已录不可退**。
+
+**响应 200**：`MpClaimStats`（退回后最新统计）
+
+**错误**：
+- `404 {"detail": "该词条未被你领取"}`
+- `400 {"detail": "已录制不能退回"}`
 
 ### ✅ 后台词条列表（可复用只读） `GET /api/words`
 
@@ -349,6 +414,7 @@ file:           <音频文件>
 - `task_id` 对应任务必须存在（否则 `404 任务不存在`）且已发布（否则 `400 任务未发布`）。
 - `word_id` 必须属于该任务（否则 `400 词条不属于该任务`）。
 - **阶段八隔离**：未绑定团队 → `400 请先加入团队（输入团队码）后再操作`；任务非本团队属地（省+市任一不符）→ `403 只能上传本团队所属地区的任务`。**本地区任务才能上传**。
+- **阶段十一领取守卫**：词条须为**本人已领取**（`task_claims` 有记录）否则 `403 该词条未被你领取，请先在任务页领取`。该 403 在属地校验之后、上传限流之前，**不消耗限流配额**（小程序本地队列会把此类项标记为「未领取」而非普通错误重试）。
 - 音频扩展名限 `.wav` / `.mp3` / `.m4a` / `.aac`；空文件返回 `400 录音文件为空`。
 - 同一 `(task_id, word_id, speaker_id)` 已存在录音时：**覆盖**旧录音（删除旧文件、保持 recording id、状态重设为 `pending`），响应 `overwritten: true`。
 - 文件落盘到 `backend/media/recordings/{task_id}/{task_id}_{word_id}_{speaker_id}{ext}`，`audio_url` 可直接拼接 `/media` 静态服务试听。

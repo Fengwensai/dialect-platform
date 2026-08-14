@@ -18,10 +18,12 @@ def cleanup():
     from app.db import SessionLocal
     from app.models.import_log import ExcelImportLog
     from app.models.task import TaskBatch, TaskBatchItem
+    from app.models.task_claim import TaskClaim
     from app.models.word import WordLibrary
 
     db = SessionLocal()
     try:
+        db.query(TaskClaim).delete()
         db.query(TaskBatchItem).delete()
         db.query(TaskBatch).delete()
         db.query(WordLibrary).delete()

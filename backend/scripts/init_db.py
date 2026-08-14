@@ -18,6 +18,7 @@ from app.models.recording import Recording  # noqa: E402  (注册模型)
 from app.models.region import Region  # noqa: E402
 from app.models.speaker import Speaker  # noqa: E402  (注册模型)
 from app.models.task import TaskBatch, TaskBatchItem  # noqa: E402
+from app.models.task_claim import TaskClaim  # noqa: E402  (注册模型)
 from app.models.word import WordLibrary  # noqa: E402
 
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "pca-code.json"

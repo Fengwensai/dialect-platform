@@ -6,7 +6,8 @@
  *
  * 队列项结构：
  * { id, taskId, wordId, content, wavPath, durationMs, createdAt,
- *   status: 'pending'|'uploading'|'done'|'error', error }
+ *   status: 'pending'|'uploading'|'done'|'error'|'claimLost', error }
+ * claimLost：上传被 403 拒绝（该词条未被领取/已被解绑），需先去任务页领取后再重录。
  */
 const uploader = require('./uploader')
 
@@ -90,10 +91,10 @@ function list() {
   return _load()
 }
 
-/** 统计：total / pending / uploading / done / error */
+/** 统计：total / pending / uploading / done / error / claimLost */
 function count() {
   const items = _load()
-  const c = { total: items.length, pending: 0, uploading: 0, done: 0, error: 0 }
+  const c = { total: items.length, pending: 0, uploading: 0, done: 0, error: 0, claimLost: 0 }
   items.forEach((x) => {
     if (c[x.status] !== undefined) c[x.status]++
   })
@@ -120,6 +121,14 @@ function markDone(id) {
 
 function markError(id, msg) {
   return _update(id, { status: 'error', error: msg || '上传失败' })
+}
+
+/** 标记为「未领取/已解绑」：该词条已不可上传，需先去任务页领取后重录 */
+function markClaimLost(id, msg) {
+  return _update(id, {
+    status: 'claimLost',
+    error: msg || '该词条未领取或已被解绑，请先领取'
+  })
 }
 
 /** 删除一条（连带删本地 wav 文件） */
@@ -197,7 +206,11 @@ function flush(opts) {
       })
       .catch((err) => {
         fail++
-        markError(item.id, (err && err.message) || String(err))
+        if (err && err.claimLost) {
+          markClaimLost(item.id, (err && err.message) || '该词条未被领取')
+        } else {
+          markError(item.id, (err && err.message) || String(err))
+        }
         if (opts.onItem) opts.onItem(item, null, err)
       })
       .then(() => run(i + 1))
@@ -228,6 +241,7 @@ module.exports = {
   markUploading,
   markDone,
   markError,
+  markClaimLost,
   remove,
   removeMany,
   clearDone,

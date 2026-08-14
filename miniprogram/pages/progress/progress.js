@@ -54,7 +54,9 @@ Page({
           .then((p) => ({
             taskId: t.id,
             taskName: t.name,
-            wordCount: p.total_words || t.word_count || 0,
+            // 领取制：进度分母改为「我领取的词条数」（只录自己领的）；
+            // 领取制前已录的历史数据兜底取大，避免进度倒退
+            wordCount: Math.max(t.my_claimed || 0, p.recorded || 0),
             recorded: p.recorded || 0,
             approved: p.approved || 0,
             pending: p.pending || 0,
@@ -63,7 +65,7 @@ Page({
           .catch(() => ({
             taskId: t.id,
             taskName: t.name,
-            wordCount: t.word_count || 0,
+            wordCount: t.my_claimed || 0,
             recorded: 0,
             approved: 0,
             pending: 0,

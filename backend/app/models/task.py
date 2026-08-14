@@ -18,6 +18,8 @@ class TaskBatch(Base):
     # 关联团队码（阶段八）：创建时选团队则地区由团队码带出并记录归属；仅展示/追溯，隔离仍按省+市
     team_code: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     required_audio_count: Mapped[int] = mapped_column(default=30)
+    # 每人领取上限（领取制）：单发音人同时最多领取词条数，0/负 视为不限制
+    claim_limit: Mapped[int] = mapped_column(default=10)
     # draft / published / closed
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     # 演示任务（审核/体验用）：未绑定团队的发音人也能看能录，不按地区过滤；审核后清理

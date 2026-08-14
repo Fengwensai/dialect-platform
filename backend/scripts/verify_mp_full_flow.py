@@ -23,6 +23,7 @@ from app.db import SessionLocal  # noqa: E402
 from app.models.recording import Recording  # noqa: E402
 from app.models.speaker import Speaker  # noqa: E402
 from app.models.task import TaskBatch, TaskBatchItem  # noqa: E402
+from app.models.task_claim import TaskClaim  # noqa: E402
 from app.models.team_code import TeamCode  # noqa: E402
 from app.models.word import WordLibrary  # noqa: E402
 from app.services import content_security as cs  # noqa: E402
@@ -71,12 +72,13 @@ PROV, CITY = "11", "1101"
 
 def cleanup(db):
     """清理全部 VFY0- 前缀验证数据（幂等，运行前后各一次）。"""
-    for sp in db.query(Speaker).filter(Speaker.device_id == DEVICE).all():
+    for sp in db.query(Speaker).filter(Speaker.device_id.like(DEVICE + "%")).all():
         db.query(Recording).filter(Recording.speaker_id == sp.id).delete()
         db.execute(text("DELETE FROM speaker_agreements WHERE speaker_id = :sid"), {"sid": sp.id})
         db.delete(sp)
     for t in db.query(TaskBatch).filter(TaskBatch.name.like("验证端到端%")).all():
         db.query(Recording).filter(Recording.task_id == t.id).delete()
+        db.query(TaskClaim).filter(TaskClaim.task_id == t.id).delete()
         db.query(TaskBatchItem).filter(TaskBatchItem.task_batch_id == t.id).delete()
         db.delete(t)
     db.query(WordLibrary).filter(WordLibrary.code.like("VFY0-%")).delete()
@@ -152,20 +154,54 @@ def main():
               and s.get("city_code") == CITY and s.get("team_code") == TEAM,
               str(r.status_code) + " " + str(s))
 
-        # —— 7. 领任务：仅本地区 + 词条 2 条未录 ——
+        # —— 7. 领任务：仅本地区 ——
         r = api("GET", "/api/mp/tasks", token=sp_token)
         items = j(r).get("items", [])
         check("mp_tasks 仅返回本地区任务", r.status_code == 200 and any(i["id"] == task_id for i in items)
               and all(i["province_code"] == PROV for i in items),
               f"total={j(r).get('total')}")
+
+        # —— 7.5 领取制：领取 2 词条 → 归我专有；第二人抢领 409、未领上传 403 ——
+        wav = make_wav()
+        r = api("POST", f"/api/mp/tasks/{task_id}/claims", token=sp_token,
+                body={"word_ids": [w1.id, w2.id]})
+        c = j(r)
+        check("领取 2 词条归我专有", r.status_code == 200 and len(c.get("claimed_word_ids", [])) == 2
+              and c["stats"]["my_claimed"] == 2 and c["stats"]["available"] == 0
+              and c["stats"]["claimable"] == 0,
+              str(r.status_code) + " " + str(j(r)))
+        sp2 = Speaker(device_id=DEVICE + "_2", nickname="端到端验证第二人")
+        db.add(sp2)
+        db.flush()
+        db.commit()
+        sp2_token = create_access_token({"speaker_id": sp2.id, "openid": "", "role": "speaker"})
+        SP2 = {"Authorization": "Bearer " + sp2_token}
+        r = api("GET", "/api/mp/agreements")
+        ag = j(r) if r.status_code == 200 else []
+        api("POST", "/api/mp/agreements/accept", token=sp2_token,
+            body={"accepted": [{"type": a["type"], "version": a["version"]} for a in ag]})
+        r = api("POST", "/api/mp/team/join", token=sp2_token, body={"code": TEAM})
+        check("第二人绑定同团队", r.status_code == 200, str(r.status_code) + " " + str(j(r)))
+        r = api("POST", f"/api/mp/tasks/{task_id}/claims", token=sp2_token,
+                body={"word_ids": [w1.id]})
+        check("第二人抢领已被领词条 409", r.status_code == 409,
+              str(r.status_code) + " " + str(j(r)))
+        r = requests.post(BASE + "/api/mp/recordings", headers=SP2,
+                          data={"task_id": str(task_id), "word_id": str(w1.id),
+                                "duration": "1000", "device_id": DEVICE + "_2"},
+                          files={"file": ("vfy.wav", wav, "audio/wav")}, timeout=15)
+        check("第二人未领上传 403", r.status_code == 403 and "未被你领取" in str(j(r)),
+              str(r.status_code) + " " + str(j(r)))
+
+        # —— 7.6 领取制：/words 只返回我领取的词条 ——
         r = api("GET", f"/api/mp/tasks/{task_id}/words", token=sp_token)
         words = j(r).get("items", [])
-        check("任务词条 2 条且未录", r.status_code == 200 and j(r).get("total") == 2
-              and all(w["recorded"] is False for w in words),
+        check("任务词条 2 条且未录（仅已领）", r.status_code == 200 and j(r).get("total") == 2
+              and all(w["recorded"] is False for w in words)
+              and j(r)["claim"]["my_claimed"] == 2,
               f"total={j(r).get('total')} statuses={[w['status'] for w in words]}")
 
-        # —— 8. 上传 2 条录音（WAV 1s）——
-        wav = make_wav()
+        # —— 8. 上传 2 条录音（WAV 1s，均已领取）——
         rec_ids = {}
         for wid, tag in ((w1.id, "词条一"), (w2.id, "词条二")):
             rr = requests.post(BASE + "/api/mp/recordings", headers=SP,

@@ -6,7 +6,8 @@ const STATUS_TEXT = {
   pending: '待上传',
   uploading: '上传中',
   done: '已完成',
-  error: '失败'
+  error: '失败',
+  claimLost: '未领取' // 领取制：词条未领取/已解绑，上传被拒，需先领取
 }
 
 Page({

@@ -77,4 +77,27 @@ function request(path, opts, retried) {
   })
 }
 
-module.exports = { request }
+/**
+ * 领取词条（count 模式：后端自动从剩余词条池按 word_id 升序取前 N 条）。
+ * 返回 { claimed_word_ids, stats }，stats 结构见 MpClaimStats。
+ */
+function claimWords(taskId, count) {
+  return request('/api/mp/tasks/' + taskId + '/claims', {
+    method: 'POST',
+    data: { count }
+  })
+}
+
+/** 我的领取统计：{ task_word_total, claim_limit, my_claimed, claimable, available, my_claim_word_ids } */
+function fetchClaims(taskId) {
+  return request('/api/mp/tasks/' + taskId + '/claims')
+}
+
+/** 退回已领取但未录制的词条（已录制会 400），返回最新统计。 */
+function releaseClaim(taskId, wordId) {
+  return request('/api/mp/tasks/' + taskId + '/claims/' + wordId, {
+    method: 'DELETE'
+  })
+}
+
+module.exports = { request, claimWords, fetchClaims, releaseClaim }

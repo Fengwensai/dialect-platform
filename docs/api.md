@@ -330,11 +330,12 @@ JWT（HS256）内包含：
   "district_code": null,
   "team_code": "HB-SJZ",
   "required_audio_count": 30,
+  "claim_limit": 10,
   "word_ids": [1, 2, 3, 4, 5, 6]
 }
 ```
 
-**字段**：`name` 必填；`province_code` 必填；`city_code`/`district_code` 为空 = 全省/全市投放；`team_code` 可选（阶段八·任务关联团队）；`required_audio_count` 默认 30；`word_ids` 允许为空（后续再补词条）。
+**字段**：`name` 必填；`province_code` 必填；`city_code`/`district_code` 为空 = 全省/全市投放；`team_code` 可选（阶段八·任务关联团队）；`required_audio_count` 默认 30；`claim_limit` 默认 10（阶段十一·每人领取上限）；`word_ids` 允许为空（后续再补词条）。
 
 > **`team_code` 关联语义（阶段八）**：传入团队码时，团队须存在（否则 422「团队码不存在」）；**投放区划由团队码自动带出**——`province_code`/`city_code` 必须与团队属地一致，否则 422「任务地区与团队码地区不一致，选择团队后地区由团队码自动带出」；`district_code` 被清空（团队码仅精确到市）。省管理员只能关联本省团队码（403「只能关联本省的团队码」）。`team_code` 仅作归属追溯/筛选，**小程序端隔离仍按省+市**（见 `docs/miniprogram-api.md`）。
 
@@ -350,6 +351,7 @@ JWT（HS256）内包含：
   "district_code": null,
   "team_code": "HB-SJZ",
   "required_audio_count": 30,
+  "claim_limit": 10,
   "status": "draft",
   "created_by": 1,
   "created_at": "2026-08-07T09:00:00Z",
@@ -410,6 +412,7 @@ JWT（HS256）内包含：
   "name": "河北省核心词任务（改）",
   "description": "任务说明",
   "required_audio_count": 50,
+  "claim_limit": 20,
   "word_ids": [1, 2, 3],
   "team_code": "HB-SJZ"
 }
@@ -472,6 +475,44 @@ JWT（HS256）内包含：
 **响应 200**：`WordOut` 数组（按加入顺序），字段见 §4。任意状态可查。
 
 **错误**：`404 {"detail": "任务不存在"}`、`403`（省管理员跨省）
+
+### 6.9 任务领取记录（阶段十一·领取制）
+
+`GET /api/tasks/{batch_id}/claims`
+
+返回该任务**全部领取记录**（含已录/未录），供后台解绑未录词条。省管理员受属地钳制（仅本省任务）。
+
+**响应 200**（`TaskClaimAdminOut` 数组，按 `word_id` 升序）：
+
+```json
+[
+  {
+    "claim_id": 11,
+    "word_id": 101,
+    "content": "早晨",
+    "speaker_id": 3,
+    "nickname": "石家庄发音人",
+    "recorded": true,
+    "claimed_at": "2026-08-14T10:00:00Z"
+  }
+]
+```
+
+**字段**：`recorded` = 该词条是否已有录音（**已录不可解绑**）；无领取时返回 `[]`。
+
+**错误**：`404` / `403`（同 6.4）
+
+### 6.10 解绑领取（后台）
+
+`DELETE /api/tasks/{batch_id}/claims/{claim_id}`
+
+把某条领取解绑，词条**回到池子**可被他人领取。仅**未录制**的领取可解绑（已录 → 400）。
+
+**响应 200**：`{"detail": "已解绑"}`
+
+**错误**：
+- `404 {"detail": "领取记录不存在"}`
+- `400 {"detail": "该词条已录制，不能解绑"}`（已录不可解绑，需先驳回/删除该录音）
 
 ---
 

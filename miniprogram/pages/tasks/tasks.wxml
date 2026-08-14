@@ -17,7 +17,7 @@
       </view>
       <view class="task-desc" wx:if="{{item.description}}">{{item.description}}</view>
       <view class="task-meta">
-        需录 {{item.required_audio_count}} 条 · 词条 {{item.word_count}} 条
+        总 {{item.word_count}} 条 · 已领 {{item.my_claimed}} 条 · 可领 {{item.claimable}} 条
       </view>
       <view class="task-progress">
         <progress
@@ -27,7 +27,16 @@
           activeColor="#2b6cb0"
           backgroundColor="#e5e8ee"
         />
-        <text class="task-progress-text">已录 {{item.recorded_count}} / {{item.required_audio_count}} 条<block wx:if="{{item.rejected_count}}"> · 需重录 {{item.rejected_count}}</block></text>
+        <text class="task-progress-text">已录 {{item.recorded_count}} / 已领 {{item.claimTarget}} 条<block wx:if="{{item.rejected_count}}"> · 需重录 {{item.rejected_count}}</block></text>
+      </view>
+      <view class="task-foot">
+        <text class="task-hint" wx:if="{{item.my_claimed}}">已领取的词条在任务页录制</text>
+        <text class="task-hint" wx:else>先领取词条再录音，领到即归您专有</text>
+        <view
+          class="claim-btn {{item.claimable > 0 ? '' : 'disabled'}}"
+          data-id="{{item.id}}"
+          catchtap="openClaim"
+        >{{item.claimBtnText}}</view>
       </view>
     </view>
   </view>
@@ -36,4 +45,31 @@
     {{regionText ? '暂无已发布任务' : '暂无任务 · 加入团队后可见本地区任务'}}
   </view>
   <view class="loading" wx:else>加载中…</view>
+
+  <!-- 领取条数弹窗（自定义，复用首页绑定团队弹窗模式） -->
+  <view class="claim-mask" wx:if="{{claimVisible}}" bindtap="closeClaim" catchtouchmove="noop">
+    <view class="claim-dialog" catchtap="noop">
+      <view class="claim-dialog-title">领取词条</view>
+      <view class="claim-dialog-desc">本次最多可领 {{claimMax}} 条。领取后词条归您专有，其他人不可再领；未录制的可随时退回。</view>
+      <view class="claim-input-wrap {{claimFocus ? 'focus' : ''}}">
+        <input
+          class="claim-input"
+          type="number"
+          value="{{claimInput}}"
+          placeholder="填写领取条数"
+          placeholder-class="claim-input-placeholder"
+          maxlength="3"
+          confirm-type="done"
+          bindinput="onClaimInput"
+          bindconfirm="doClaim"
+          bindfocus="onClaimFocus"
+          bindblur="onClaimBlur"
+        />
+      </view>
+      <view class="claim-dialog-actions">
+        <button class="claim-dialog-btn cancel" bindtap="closeClaim" disabled="{{claiming}}">取消</button>
+        <button class="claim-dialog-btn confirm" bindtap="doClaim" loading="{{claiming}}" disabled="{{claiming}}">确认领取</button>
+      </view>
+    </view>
+  </view>
 </view>

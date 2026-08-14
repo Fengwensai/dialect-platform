@@ -88,6 +88,11 @@
   font-size: 28rpx;
 }
 
+.pick-claim-btn {
+  display: block;
+  margin: 0 auto 12rpx;
+}
+
 .pick-tip {
   text-align: center;
   color: #a0aec0;

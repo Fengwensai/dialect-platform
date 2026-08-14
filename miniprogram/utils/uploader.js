@@ -67,7 +67,15 @@ function uploadRecording(item) {
           } catch (e) {
             detail = res.data
           }
-          reject(new Error('上传失败 HTTP ' + res.statusCode + (detail ? ': ' + detail : '')))
+          const err = new Error(
+            '上传失败 HTTP ' + res.statusCode + (detail ? ': ' + detail : '')
+          )
+          // 领取制：本地队列里未领取/已被解绑/他人已领的词条，上传会被 403 拒绝。
+          // 打 claimLost 标记，让队列明确提示「先去领取」而不是当作普通失败反复重试。
+          if (res.statusCode === 403 && String(detail).indexOf('未被你领取') >= 0) {
+            err.claimLost = true
+          }
+          reject(err)
         }
       },
       fail: reject

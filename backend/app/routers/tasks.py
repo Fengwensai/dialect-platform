@@ -8,10 +8,12 @@ from ..core.deps import get_current_admin
 from ..db import get_db
 from ..models.admin import AdminUser
 from ..models.recording import Recording
+from ..models.speaker import Speaker
 from ..models.task import TaskBatch, TaskBatchItem
+from ..models.task_claim import TaskClaim
 from ..models.team_code import TeamCode
 from ..models.word import WordLibrary
-from ..schemas.task import TaskBatchCreate, TaskBatchOut, TaskBatchUpdate
+from ..schemas.task import TaskBatchCreate, TaskBatchOut, TaskBatchUpdate, TaskClaimAdminOut
 from ..schemas.word import WordOut
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -76,6 +78,7 @@ def create_task(
         district_code=district_code,
         team_code=team_code,
         required_audio_count=body.required_audio_count,
+        claim_limit=body.claim_limit,
         status="draft",
         created_by=admin.id,
         is_demo=body.is_demo,
@@ -226,6 +229,8 @@ def update_task(
         batch.description = data["description"]
     if data.get("required_audio_count"):
         batch.required_audio_count = data["required_audio_count"]
+    if "claim_limit" in data:
+        batch.claim_limit = data["claim_limit"]
     if "team_code" in data:
         team_code = _normalize(data["team_code"]) if data["team_code"] else None
         if team_code:
@@ -303,7 +308,83 @@ def delete_task(
     )
     if has_recording:
         raise HTTPException(status_code=400, detail="该任务已有录音，不能删除")
+    db.query(TaskClaim).filter(TaskClaim.task_id == batch.id).delete()
     db.query(TaskBatchItem).filter(TaskBatchItem.task_batch_id == batch.id).delete()
     db.delete(batch)
     db.commit()
     return {"detail": "已删除"}
+
+
+@router.get("/{batch_id}/claims", response_model=list[TaskClaimAdminOut])
+def task_claims_list(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """任务领取情况（领取制）：每条领取对应的词条/发音人/是否已录，供后台解绑。"""
+    _get_task(db, admin, batch_id)
+    claims = (
+        db.query(TaskClaim)
+        .filter(TaskClaim.task_id == batch_id)
+        .order_by(TaskClaim.word_id)
+        .all()
+    )
+    if not claims:
+        return []
+    word_ids = [c.word_id for c in claims]
+    speaker_ids = [c.speaker_id for c in claims]
+    word_map = {
+        w.id: w
+        for w in db.query(WordLibrary).filter(WordLibrary.id.in_(word_ids)).all()
+    }
+    speaker_map = {
+        s.id: s for s in db.query(Speaker).filter(Speaker.id.in_(speaker_ids)).all()
+    }
+    recorded_words = {
+        r[0]
+        for r in db.query(Recording.word_id)
+        .filter(Recording.task_id == batch_id, Recording.word_id.in_(word_ids))
+        .all()
+    }
+    return [
+        TaskClaimAdminOut(
+            claim_id=c.id,
+            word_id=c.word_id,
+            content=word_map[c.word_id].content if c.word_id in word_map else "",
+            speaker_id=c.speaker_id,
+            nickname=speaker_map[c.speaker_id].nickname
+            if c.speaker_id in speaker_map
+            else "",
+            recorded=c.word_id in recorded_words,
+            claimed_at=c.claimed_at,
+        )
+        for c in claims
+    ]
+
+
+@router.delete("/{batch_id}/claims/{claim_id}")
+def admin_unbind_claim(
+    batch_id: int,
+    claim_id: int,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """管理端解绑领取：仅未录制的词条可解绑（已录 400），解绑后词条回池。"""
+    _get_task(db, admin, batch_id)
+    claim = db.get(TaskClaim, claim_id)
+    if claim is None or claim.task_id != batch_id:
+        raise HTTPException(status_code=404, detail="领取记录不存在")
+    rec = (
+        db.query(Recording)
+        .filter(
+            Recording.task_id == batch_id,
+            Recording.word_id == claim.word_id,
+            Recording.speaker_id == claim.speaker_id,
+        )
+        .first()
+    )
+    if rec is not None:
+        raise HTTPException(status_code=400, detail="该词条已录制，不能解绑")
+    db.delete(claim)
+    db.commit()
+    return {"detail": "已解绑"}

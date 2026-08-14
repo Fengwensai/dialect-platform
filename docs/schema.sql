@@ -1,5 +1,5 @@
 -- 方言采集平台 · 数据库表结构（PostgreSQL 方言）
--- 由 scripts/export_schema.py 反射生成，共 11 张表
+-- 由 scripts/export_schema.py 反射生成，共 12 张表
 -- 仅结构，不含数据。表间为逻辑引用（未声明 FOREIGN KEY），详见 docs/database.md。
 
 
@@ -137,6 +137,7 @@ CREATE TABLE task_batch_items (
 ;
 CREATE INDEX ix_task_batch_items_task_batch_id ON task_batch_items (task_batch_id);
 CREATE INDEX ix_task_batch_items_word_id ON task_batch_items (word_id);
+CREATE UNIQUE INDEX uq_task_batch_items_batch_word ON task_batch_items (task_batch_id, word_id);
 
 
 CREATE TABLE task_batches (
@@ -153,6 +154,7 @@ CREATE TABLE task_batches (
 	published_at TIMESTAMP WITH TIME ZONE, 
 	team_code VARCHAR(32), 
 	is_demo BOOLEAN DEFAULT false, 
+	claim_limit INTEGER DEFAULT 10 NOT NULL, 
 	CONSTRAINT task_batches_pkey PRIMARY KEY (id)
 )
 
@@ -162,6 +164,23 @@ CREATE INDEX ix_task_batches_district_code ON task_batches (district_code);
 CREATE INDEX ix_task_batches_province_code ON task_batches (province_code);
 CREATE INDEX ix_task_batches_status ON task_batches (status);
 CREATE INDEX ix_task_batches_team_code ON task_batches (team_code);
+
+
+CREATE TABLE task_claims (
+	id SERIAL NOT NULL, 
+	task_id INTEGER NOT NULL, 
+	word_id INTEGER NOT NULL, 
+	speaker_id INTEGER NOT NULL, 
+	claimed_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
+	CONSTRAINT task_claims_pkey PRIMARY KEY (id)
+)
+
+;
+CREATE INDEX ix_task_claims_speaker_id ON task_claims (speaker_id);
+CREATE INDEX ix_task_claims_task_id ON task_claims (task_id);
+CREATE INDEX ix_task_claims_task_speaker ON task_claims (task_id, speaker_id);
+CREATE INDEX ix_task_claims_word_id ON task_claims (word_id);
+CREATE UNIQUE INDEX uq_task_claims_task_word ON task_claims (task_id, word_id);
 
 
 CREATE TABLE team_codes (

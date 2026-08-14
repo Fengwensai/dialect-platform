@@ -86,6 +86,8 @@ npm run dev        # http://localhost:5173
 
 - 生成样例词表：`python backend/scripts/make_sample_xlsx.py`
 - 后端冒烟测试：`python backend/scripts/test_api.py`（需后端已启动）
+- 领取制迁移（幂等，建表+回填）：`python backend/scripts/migrate_task_claims.py`
+- 领取制专项验证（进程内 22 项断言）：`python backend/scripts/verify_task_claims.py`
 - 生成测试 Excel 后，在前端「词表导入」页上传即可走通全流程
 
 ## 环境配置
@@ -235,6 +237,16 @@ npm run dev        # http://localhost:5173
 - **后端强制拦截（客户端不可绕过）**：登录仍发 token（否则无法调同意接口），但未全部同意最新版前，所有功能接口（任务/词条/进度/上传/资料/头像）返回 `403 请先同意最新版用户协议、隐私政策与声音授权协议`；`upload_recording` 只拦登录身份、匿名 device_id 补传路径不拦。新接口：`GET /api/mp/agreements`（公开，最新三份）、`GET /api/mp/agreements/pending`（Bearer，我待确认的 type）、`POST /api/mp/agreements/accept`（Bearer，整体校验 + 旧版本 **409**「协议已更新，请重新阅读最新版本」，幂等/部分同意）。登录响应新增 `pending_agreements`。
 - **管理后台**：新增「协议管理」页（`/agreements`，仅超管可见）：三类最新版本列表 + **编辑（生成新版本，保存前确认框提示所有发音人需重新同意）** + 历史版本弹窗。
 - **小程序端**：登录页三行 checkbox + 协议名链接（点名字进 `pages/agreement/agreement` 滚动全文页），**三份全勾登录按钮才可点**；登录后 `pending_agreements` 非空弹**自定义确认窗**（列出待确认协议 + 「查看」+「同意并继续」，409 时提示「协议已更新」并刷新）；冷启动/后台升级后被 403 踢回登录页，`onLoad` 调 pending 接口**只弹被改的那份**。`utils/api.js` 收到协议守卫 403 自动 `wx.reLaunch` 回登录页。
+
+### 阶段十一：任务词条领取制（多人采集互斥，已实现）
+
+**领取制解决「多人同时采集同一词条」**：采集者主动领取 N 条后这 N 条归其**专有**（数据库级 `UNIQUE(task_id, word_id)` 兜底，并发也不会发给两个人），其他人不能领/不能录；未录可**自退**、管理后台可**解绑**；可**追加领取**（累计不超每人上限 `claim_limit`，默认 10）。
+
+- **DB**：新建 `task_claims`（领取记录表，`UNIQUE(task_id, word_id)` 一词条一人 + 5 个索引）；`task_batches` 加 `claim_limit` 列；`task_batch_items` 去重并加 `UNIQUE(task_batch_id, word_id)`。幂等迁移：`backend/scripts/migrate_task_claims.py`（存量录音自动回填为领取，同词条多人录过只留一人，可超限祖父化，后台可解绑）。
+- **后端**：新增 `POST/GET /api/mp/tasks/{id}/claims`（领取 / 我的统计，`SELECT ... FOR UPDATE` 锁任务行串行化并发）、`DELETE /api/mp/tasks/{id}/claims/{word_id}`（自退，已录 400）；`GET /api/mp/tasks/{id}/words` 改为**只返回我已领取**的词条；上传守卫**未领取 → 403**（属地校验之后、限流之前，不消耗配额）；管理端 `GET/DELETE /api/tasks/{id}/claims`（领取管理 / 解绑，已录 400）。
+- **小程序**：任务卡/词条页「领取」按钮（选条数弹窗）+ 已领/可领进度（分母改为已领数）；词条页空池引导「先去领取」；本地队列把 403「未被你领取」标为「未领取」不当作普通错误重试。
+- **管理后台**：任务表单加「每人领取上限」（默认 10）；任务列表加「领取」按钮 → 领取管理弹窗（词条/发音人/是否已录 + 解绑，已录禁用）。
+- **回归**：新增 `backend/scripts/verify_task_claims.py`（进程内 22 项断言：未领上传 403 / 抢领 409 / 上限封顶 / 自退 / 后台解绑 / 并发 10 人抢 5 词条恰好 5×200 + 5×409）。
 
 ## 开发者工具打开方式
 

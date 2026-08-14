@@ -1,6 +1,6 @@
 # 数据库设计文档
 
-方言采集平台共 **11 张表**（管理后台 7 张 + 小程序发音人端 4 张）。技术栈：PostgreSQL 15 + SQLAlchemy 2。
+方言采集平台共 **12 张表**（管理后台 7 张 + 小程序发音人端 5 张）。技术栈：PostgreSQL 15 + SQLAlchemy 2。
 所有 `*_code` 字段存行政区划 **adcode**（省份 2 位、地市 4 位、区县 6 位，部分直筒子市的镇/街道为 9 位，统一 `VARCHAR(16)`）。
 
 > 说明：表与表之间目前是**逻辑引用**（用整型 id 关联），未声明数据库级 FOREIGN KEY，便于后续按业务扩展。生产前建议补约束或改为外键。
@@ -19,6 +19,9 @@ excel_import_logs                           │ 1 关联 N（每词一条录音�
                                                     ▲
                             team_codes ──N 绑定 1───┘（团队码→省+市，发音人凭码绑定）
 regions  ←──── word_library / task_batches / admin_users / speakers / team_codes 的 *_code 引用其 code
+
+任务词条领取（阶段十一）：task_claims ──（task_id → task_batches，word_id → word_library，speaker_id → speakers）
+   一词条一人：UNIQUE(task_id, word_id)；已领即归该发音人专有，他人不能领/不能录
 
 agreements（协议版本，1:N）──┐
    ▲ 发布者：admin_users     │ 每人每类记录已接受的最新版本（UNIQUE(speaker_id, type)）
@@ -93,6 +96,7 @@ speaker_agreements ──────────┘
 | `district_code` | varchar(16), 可空 | 投放区县 adcode（空 = 全市各区县） |
 | `team_code` | varchar(32), 索引, 可空 | **关联的团队码**（阶段八，对应 `team_codes.code`）。创建/改绑时**投放区划由团队码带出**（省+市随团队属地覆盖，district 清空）；仅归属追溯/筛选，**小程序端隔离仍按省+市** |
 | `required_audio_count` | int | 必录音频数（每个发音人需录的条数，如 30） |
+| `claim_limit` | int | **每人领取上限**（阶段十一，默认 10）：单发音人同时最多领取词条数。领取时 `can_take = min(剩余可领, claim_limit - 已领)`；存量回填可超限（祖父化），多余可后台解绑 |
 | `status` | varchar(20) | 状态：`draft` 草稿 / `published` 已发布 / `closed` 已关闭 |
 | `created_by` | int, 可空 | 创建的管理员 id |
 | `created_at` | timestamptz | 创建时间 |
@@ -110,6 +114,7 @@ speaker_agreements ──────────┘
 | `task_batch_id` | int, 索引 | 任务包 id（关联 `task_batches.id`） |
 | `word_id` | int, 索引 | 词条 id（关联 `word_library.id`） |
 
+> 阶段十一加固：`UNIQUE(task_batch_id, word_id)`（`uq_task_batch_items_batch_word`）防止同词条重复入任务，避免领取时 `INSERT ... LIMIT` 把同一词选两次。索引：`ix_task_batch_items_task_word`。
 > 后续阶段录音上传后，可在本表追加 `record_status`、`audio_url` 等字段，实现"每词一条录音"的进度跟踪。
 
 ---
@@ -233,6 +238,31 @@ speaker_agreements ──────────┘
 | `accepted_at` | timestamptz | 接受时间 |
 
 **约束**：`UNIQUE(speaker_id, type)`（`uq_speaker_agreements_speaker_type`）——每人每类仅保留一条接受记录。提交同意采用**先删后插**（幂等）：重复同意是 no-op，同意更高版本则覆盖旧记录。
+
+---
+
+## 12. task_claims — 任务词条领取表（阶段十一）
+
+**作用**：领取制核心——发音人主动领取任务内 N 条词条后，这 N 条**归其专有**，其他发音人不能领/不能录；未录可自退回池，管理后台可解绑。互斥的最终防线是数据库级 `UNIQUE(task_id, word_id)`（即使并发领取也被该约束兜底）。
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `id` | int, PK | 主键 |
+| `task_id` | int, 索引 | 任务 id（关联 `task_batches.id`） |
+| `word_id` | int, 索引 | 词条 id（关联 `word_library.id`） |
+| `speaker_id` | int, 索引 | 发音人 id（关联 `speakers.id`） |
+| `claimed_at` | timestamptz | 领取时间（默认 now()） |
+
+**约束/索引**：
+- `UNIQUE(task_id, word_id)`（`uq_task_claims_task_word`）——一词条一人，互斥核心。
+- `ix_task_claims_task_id` / `ix_task_claims_word_id` / `ix_task_claims_speaker_id` / `ix_task_claims_task_speaker(task_id, speaker_id)`。
+
+**行为约定**：
+- **领取 = 占池**：并发领取时服务端 `SELECT ... FOR UPDATE` 锁任务行串行化，池只减不增，无需重试。
+- **上传守卫**：上传录音时校验本人是否领取该词条（未领取 → 403「该词条未被你领取」），且该 403 不消耗上传限流配额。
+- **已录制不可退**：存在同 (task, word, speaker) 录音的领取，自退与后台解绑均返回 400；未录可退，退回后词条回池可被他人领取。
+- **存量回填**：`migrate_task_claims.py` 把已有录音的 `(task_id, word_id, speaker_id)` 回填为领取记录（`DISTINCT + ON CONFLICT DO NOTHING`，同词条多人录过只保留一人；可超 `claim_limit`，祖父化，多余可后台解绑）。
+- 迁移脚本：`scripts/migrate_task_claims.py`（幂等，重跑安全）；清理脚本 `scripts/reset_business_data.py` 的 `BUSINESS_TABLES` 已包含本表。
 
 ---
 

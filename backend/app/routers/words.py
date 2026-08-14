@@ -6,6 +6,7 @@ from ..core.deps import get_current_admin
 from ..db import get_db
 from ..models.admin import AdminUser
 from ..models.task import TaskBatchItem
+from ..models.task_claim import TaskClaim
 from ..models.word import WordLibrary
 from ..schemas.word import WordOut, WordUpdate
 from ..services.region_matcher import match_region
@@ -110,7 +111,8 @@ def delete_word(
         raise HTTPException(status_code=404, detail="词条不存在")
     if admin.role == "province_admin" and word.province_code != admin.province_code:
         raise HTTPException(status_code=403, detail="无权操作其他省份词条")
-    # 清理任务包中的引用，避免孤儿数据
+    # 清理任务包中的引用，避免孤儿数据；领取记录一并清，防止孤儿 claim 永久占池
+    db.query(TaskClaim).filter(TaskClaim.word_id == word_id).delete()
     db.query(TaskBatchItem).filter(TaskBatchItem.word_id == word_id).delete()
     db.delete(word)
     db.commit()

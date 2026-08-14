@@ -23,6 +23,7 @@ from app.main import app  # noqa: E402
 from app.models.recording import Recording  # noqa: E402
 from app.models.speaker import Speaker  # noqa: E402
 from app.models.task import TaskBatch, TaskBatchItem  # noqa: E402
+from app.models.task_claim import TaskClaim  # noqa: E402
 from app.models.word import WordLibrary  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "_verify_demo_task.txt")
@@ -71,11 +72,13 @@ def cleanup(db):
     for dev in (DEV_U, DEV_B):
         for sp in db.query(Speaker).filter(Speaker.device_id == dev).all():
             db.query(Recording).filter(Recording.speaker_id == sp.id).delete()
+            db.query(TaskClaim).filter(TaskClaim.speaker_id == sp.id).delete()
             db.execute(text("DELETE FROM speaker_agreements WHERE speaker_id = :sid"),
                        {"sid": sp.id})
             db.delete(sp)
     for t in db.query(TaskBatch).filter(TaskBatch.name.like("验证演示%")).all():
         db.query(Recording).filter(Recording.task_id == t.id).delete()
+        db.query(TaskClaim).filter(TaskClaim.task_id == t.id).delete()
         db.query(TaskBatchItem).filter(TaskBatchItem.task_batch_id == t.id).delete()
         db.delete(t)
     db.query(WordLibrary).filter(WordLibrary.code.like("VFY-D%")).delete()
@@ -131,6 +134,13 @@ def main():
         check("未绑定→只看到演示任务", r.status_code == 200 and demo_id in ids
               and real_id not in ids and demo_item and demo_item.get("is_demo") is True,
               f"ids={ids}")
+
+        # —— 3.5 领取制：未绑定先领取演示任务 w1/w2（/words 现在只返回已领）——
+        r = c.post(f"/api/mp/tasks/{demo_id}/claims", headers=U,
+                   json={"word_ids": [w1.id, w2.id]})
+        check("未绑定→领取演示任务 2 词条", r.status_code == 200
+              and len(r.json().get("claimed_word_ids", [])) == 2,
+              str(r.status_code) + " " + str(r.json()))
 
         # —— 4. 未绑定：演示任务词条可见 ——
         r = c.get(f"/api/mp/tasks/{demo_id}/words", headers=U)

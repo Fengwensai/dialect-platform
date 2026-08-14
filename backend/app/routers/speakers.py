@@ -20,6 +20,7 @@ from ..models.recording import Recording
 from ..models.region import Region
 from ..models.speaker import Speaker
 from ..models.task import TaskBatch
+from ..models.task_claim import TaskClaim
 from ..models.word import WordLibrary
 from ..schemas.speakers import (
     SpeakerAdminOut,
@@ -293,6 +294,23 @@ def update_speaker_profile(
     if province_changed or city_changed:
         # 属地被改动 → 原团队码绑定作废
         speaker.team_code = None
+        # 领取制（阶段十一）：旧属地任务已无法访问，清掉该发音人未录制的孤儿领取、
+        # 把词条还给池子；已录制的领取保留（录音数据仍属该发音人，可审核/导出）。
+        orphan_rows = (
+            db.query(TaskClaim.id)
+            .outerjoin(
+                Recording,
+                (Recording.task_id == TaskClaim.task_id)
+                & (Recording.word_id == TaskClaim.word_id)
+                & (Recording.speaker_id == TaskClaim.speaker_id),
+            )
+            .filter(TaskClaim.speaker_id == speaker.id, Recording.id.is_(None))
+            .all()
+        )
+        if orphan_rows:
+            db.query(TaskClaim).filter(
+                TaskClaim.id.in_([r[0] for r in orphan_rows])
+            ).delete()
 
     db.commit()
     db.refresh(speaker)

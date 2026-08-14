@@ -26,6 +26,7 @@ from app.main import app  # noqa: E402
 from app.models.recording import Recording  # noqa: E402
 from app.models.speaker import Speaker  # noqa: E402
 from app.models.task import TaskBatch, TaskBatchItem  # noqa: E402
+from app.models.task_claim import TaskClaim  # noqa: E402
 from app.models.team_code import TeamCode  # noqa: E402
 from app.models.word import WordLibrary  # noqa: E402
 from app.services import content_security as cs  # noqa: E402
@@ -95,10 +96,12 @@ def make_wav(seconds=1, rate=16000):
 def cleanup(db):
     for sp in db.query(Speaker).filter(Speaker.device_id == DEVICE).all():
         db.query(Recording).filter(Recording.speaker_id == sp.id).delete()
+        db.query(TaskClaim).filter(TaskClaim.speaker_id == sp.id).delete()
         db.execute(text("DELETE FROM speaker_agreements WHERE speaker_id = :sid"), {"sid": sp.id})
         db.delete(sp)
     for t in db.query(TaskBatch).filter(TaskBatch.name.like("验证COS%")).all():
         db.query(Recording).filter(Recording.task_id == t.id).delete()
+        db.query(TaskClaim).filter(TaskClaim.task_id == t.id).delete()
         db.query(TaskBatchItem).filter(TaskBatchItem.task_batch_id == t.id).delete()
         db.delete(t)
     db.query(WordLibrary).filter(WordLibrary.code.like("VFY0-%")).delete()
@@ -174,6 +177,13 @@ def main():
         check("同意协议", r.status_code == 200, str(r.status_code) + " " + str(r.json()))
         r = c.post("/api/mp/team/join", headers=SP, json={"code": TEAM})
         check("绑定团队", r.status_code == 200 and r.json().get("province_code") == PROV,
+              str(r.status_code) + " " + str(r.json()))
+
+        # —— 3.5 领取制：上传前先领取 w1/w2（否则上传守卫 403）——
+        r = c.post(f"/api/mp/tasks/{task_id}/claims", headers=SP,
+                   json={"word_ids": [w1.id, w2.id]})
+        check("上传前领取 w1/w2", r.status_code == 200
+              and len(r.json().get("claimed_word_ids", [])) == 2,
               str(r.status_code) + " " + str(r.json()))
 
         # —— 4. 上传 wav：fake store 落 key，返回逻辑路径 ——

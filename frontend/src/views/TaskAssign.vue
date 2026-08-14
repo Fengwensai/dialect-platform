@@ -38,6 +38,10 @@
         <el-form-item label="必录音频数">
           <el-input-number v-model="form.required_audio_count" :min="1" :max="5000" />
         </el-form-item>
+        <el-form-item label="每人领取上限">
+          <el-input-number v-model="form.claim_limit" :min="1" :max="500" />
+          <div class="tip">每名发音人同时最多领取的词条数（领取制）</div>
+        </el-form-item>
         <el-form-item label="说明">
           <el-input v-model="form.description" placeholder="任务说明（选填）" style="width: 320px" />
         </el-form-item>
@@ -122,6 +126,7 @@
         </el-table-column>
         <el-table-column prop="word_count" label="词条数" width="80" />
         <el-table-column prop="required_audio_count" label="必录数" width="80" />
+        <el-table-column prop="claim_limit" label="领取上限" width="90" />
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="statusTag(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
@@ -130,7 +135,7 @@
         <el-table-column prop="created_at" label="创建时间" width="170">
           <template #default="{ row }">{{ row.created_at?.slice(0, 16) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="240" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.status === 'draft'" link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button v-if="row.status === 'draft'" link type="success" @click="publish(row)">发布</el-button>
@@ -138,6 +143,7 @@
             <el-button v-if="row.status === 'published'" link type="warning" @click="closeTask(row)">关闭</el-button>
             <el-button v-if="row.status === 'closed'" link type="success" @click="reopenTask(row)">打开</el-button>
             <el-button link type="primary" @click="openWords(row)">词条</el-button>
+            <el-button link type="warning" @click="openClaims(row)">领取</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -178,6 +184,9 @@
         <el-form-item label="必录音频数">
           <el-input-number v-model="editForm.required_audio_count" :min="1" :max="5000" />
         </el-form-item>
+        <el-form-item label="每人领取上限">
+          <el-input-number v-model="editForm.claim_limit" :min="1" :max="500" />
+        </el-form-item>
         <el-form-item label="说明">
           <el-input v-model="editForm.description" placeholder="任务说明（选填）" />
         </el-form-item>
@@ -215,6 +224,35 @@
         <el-table-column prop="example_sentence" label="例句" min-width="180" show-overflow-tooltip />
       </el-table>
     </el-dialog>
+
+    <!-- 领取管理（领取制）：查看每条领取，已录不可解绑，解绑后词条回池 -->
+    <el-dialog v-model="claimsVisible" :title="claimsTitle" width="760px">
+      <el-table :data="taskClaims" v-loading="claimsLoading" border size="small" max-height="480">
+        <el-table-column prop="content" label="词条内容" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="nickname" label="发音人" width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.nickname || `发音人#${row.speaker_id}` }}</template>
+        </el-table-column>
+        <el-table-column label="是否已录" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.recorded ? 'success' : 'info'" size="small">{{ row.recorded ? '已录' : '未录' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="领取时间" width="160">
+          <template #default="{ row }">{{ row.claimed_at?.slice(0, 16).replace('T', ' ') }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="90" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              link
+              type="danger"
+              :disabled="row.recorded"
+              @click="unbindClaim(row)"
+            >解绑</el-button>
+          </template>
+        </el-table-column>
+        <template #empty>暂无领取记录</template>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
@@ -231,7 +269,7 @@ const regionStore = useRegionStore()
 
 const cascaderProps = { value: 'code', label: 'name', children: 'children', checkStrictly: true, emitPath: true }
 
-const form = reactive({ name: '', description: '', required_audio_count: 30, is_demo: false })
+const form = reactive({ name: '', description: '', required_audio_count: 30, claim_limit: 10, is_demo: false })
 const taskRegion = ref([])
 const wordFilterRegion = ref([])
 const wordKeyword = ref('')
@@ -256,7 +294,7 @@ const taskPageSize = ref(20)
 
 const editVisible = ref(false)
 const editing = ref(false)
-const editForm = reactive({ id: null, name: '', description: '', required_audio_count: 30, team_code: null })
+const editForm = reactive({ id: null, name: '', description: '', required_audio_count: 30, claim_limit: 10, team_code: null })
 const editWordIds = ref([])
 const editWordOptions = ref([])
 const editWordLoading = ref(false)
@@ -265,6 +303,13 @@ const wordsVisible = ref(false)
 const wordsTitle = ref('')
 const taskWords = ref([])
 const taskWordsLoading = ref(false)
+
+// 领取管理（领取制）
+const claimsVisible = ref(false)
+const claimsTitle = ref('')
+const claimsTaskRow = ref(null) // 当前任务的列表行（解绑后刷新需要任务 id）
+const taskClaims = ref([])
+const claimsLoading = ref(false)
 
 // 省管理员只能操作本省
 const regionOptions = computed(() => {
@@ -411,6 +456,7 @@ async function createTask(publishAfter) {
       district_code: d || null,
       team_code: selectedTeamCode.value || null,
       required_audio_count: form.required_audio_count,
+      claim_limit: form.claim_limit,
       word_ids: [...selectedWords.value],
       is_demo: form.is_demo
     }
@@ -461,6 +507,7 @@ async function openEdit(row) {
     name: row.name || '',
     description: row.description || '',
     required_audio_count: row.required_audio_count,
+    claim_limit: row.claim_limit ?? 10,
     team_code: row.team_code || null
   })
   // 预载已选词条
@@ -505,6 +552,7 @@ async function saveEdit() {
       name: editForm.name.trim(),
       description: editForm.description || null,
       required_audio_count: editForm.required_audio_count,
+      claim_limit: editForm.claim_limit,
       word_ids: editWordIds.value,
       team_code: editForm.team_code || null
     })
@@ -571,6 +619,34 @@ function statusLabel(s) {
 }
 function statusTag(s) {
   return { draft: 'info', published: 'success', closed: 'danger' }[s] || 'info'
+}
+
+async function openClaims(row) {
+  claimsVisible.value = true
+  claimsTitle.value = `领取管理 — ${row.name}`
+  claimsTaskRow.value = row
+  claimsLoading.value = true
+  try {
+    taskClaims.value = await request.get(`/tasks/${row.id}/claims`)
+  } finally {
+    claimsLoading.value = false
+  }
+}
+
+/** 解绑领取：仅未录制可解绑（已录由后端 400 拦截），解绑后词条回池 */
+async function unbindClaim(row) {
+  const task = claimsTaskRow.value
+  if (!task) return
+  try {
+    await ElMessageBox.confirm(
+      `解绑后「${row.content}」将释放回池，其他人可领取；该发音人已录的录音不受影响。确定解绑？`,
+      '解绑确认',
+      { type: 'warning' }
+    )
+  } catch (e) { return }
+  await request.delete(`/tasks/${task.id}/claims/${row.claim_id}`)
+  ElMessage.success('已解绑')
+  openClaims(task)
 }
 
 onMounted(async () => {

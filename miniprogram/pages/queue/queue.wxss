@@ -116,6 +116,11 @@
   color: #c53030;
 }
 
+.status-claimLost {
+  background: #fdeaea;
+  color: #c53030;
+}
+
 .ops {
   margin-top: 16rpx;
 }

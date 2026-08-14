@@ -16,13 +16,24 @@
               <text class="demo-tag" wx:if="{{item.is_demo}}">演示</text>{{item.name}}
             </view>
             <view class="pick-meta">
-              词条 {{item.word_count}}<text wx:if="{{item.rejected_count}}"> · 需重录 {{item.rejected_count}}</text>
+              词条 {{item.word_count}} · 已领 {{item.my_claimed}}<text wx:if="{{item.claimable}}"> · 可领 {{item.claimable}}</text><text wx:if="{{item.rejected_count}}"> · 需重录 {{item.rejected_count}}</text>
             </view>
           </view>
           <view class="pick-arrow">{{taskIndex === index ? '✓' : '›'}}</view>
         </view>
       </view>
       <view wx:else class="pick-empty">{{taskLoading ? '加载中…' : '暂无可用任务（加入团队后可见本地区任务）'}}</view>
+    </view>
+
+    <!-- 空池 CTA：选中的任务还没有我领取的词条（领取制下 /words 仅返回已领） -->
+    <view class="card pick-card" wx:if="{{taskIndex >= 0 && !wordOptions.length && !taskLoading}}">
+      <view class="pick-empty">这个任务还没有你领取的词条</view>
+      <button
+        class="btn-primary pick-claim-btn"
+        data-id="{{taskOptions[taskIndex].id}}"
+        bindtap="goClaim"
+        size="mini"
+      >去领取词条</button>
     </view>
 
     <view class="card pick-card" wx:if="{{wordOptions.length}}">

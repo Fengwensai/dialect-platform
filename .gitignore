@@ -6,6 +6,10 @@ __pycache__/
 # 敏感凭据（真实微信 AppSecret 等，绝不提交）
 backend/.env
 
+# 生产部署包（含 backend/.env 真实微信凭据与生产密码，绝不提交）
+deploy-bundle/
+deploy-bundle-*.tar.gz
+
 # 运行时数据：录音/头像（含真实发音人数据，不入仓；storage.py 会自动重建目录）
 backend/media/
 

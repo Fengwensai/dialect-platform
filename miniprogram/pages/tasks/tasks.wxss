@@ -82,6 +82,133 @@
   color: #909399;
 }
 
+.task-foot {
+  margin-top: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.task-hint {
+  font-size: 22rpx;
+  color: #a0aec0;
+}
+
+/* 领取按钮（view 模拟，避免 button 默认样式挤压宽度） */
+.claim-btn {
+  font-size: 26rpx;
+  color: #fff;
+  background: linear-gradient(135deg, #2b6cb0, #4299e1);
+  border-radius: 999rpx;
+  padding: 10rpx 36rpx;
+  line-height: 1.4;
+}
+
+.claim-btn.disabled {
+  background: #cbd5e0;
+  color: #f7fafc;
+}
+
+/* 领取条数弹窗（自定义 modal，样式同首页绑定弹窗） */
+.claim-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 56rpx;
+  box-sizing: border-box;
+}
+
+.claim-dialog {
+  width: 100%;
+  max-width: 600rpx;
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 48rpx 40rpx 32rpx;
+  box-sizing: border-box;
+}
+
+.claim-dialog-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #303133;
+  text-align: center;
+}
+
+.claim-dialog-desc {
+  font-size: 24rpx;
+  color: #909399;
+  line-height: 1.6;
+  margin-top: 16rpx;
+  text-align: center;
+}
+
+.claim-input-wrap {
+  margin-top: 36rpx;
+  background: #f5f6f7;
+  border-radius: 14rpx;
+  border: 2rpx solid transparent;
+  padding: 0 28rpx;
+  transition: border-color 0.2s;
+}
+
+.claim-input-wrap.focus {
+  border-color: #4299e1;
+  background: #fff;
+}
+
+.claim-input {
+  height: 92rpx;
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #2b6cb0;
+}
+
+.claim-input-placeholder {
+  color: #a0aec0;
+  font-weight: 400;
+}
+
+.claim-dialog-actions {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 40rpx;
+}
+
+.claim-dialog-btn {
+  flex: 1;
+  height: 88rpx;
+  line-height: 88rpx;
+  font-size: 30rpx;
+  border-radius: 999rpx;
+  margin: 0;
+  padding: 0;
+}
+
+.claim-dialog-btn::after {
+  border: none;
+}
+
+.claim-dialog-btn.cancel {
+  background: #f0f2f5;
+  color: #606266;
+}
+
+.claim-dialog-btn.confirm {
+  background: linear-gradient(135deg, #2b6cb0, #4299e1);
+  color: #fff;
+}
+
+.claim-dialog-btn.confirm[disabled] {
+  opacity: 0.6;
+}
+
 .empty,
 .loading {
   text-align: center;

@@ -57,6 +57,7 @@ from app.models.task import TaskBatch
 from app.models.team_code import TeamCode
 from app.models.recording import Recording
 from app.models.task import TaskBatchItem
+from app.models.task_claim import TaskClaim
 
 db = SessionLocal()
 
@@ -230,6 +231,10 @@ if task_sy:
 # 关键在状态码≠403/400-绑定
 item = db.query(TaskBatchItem).filter(TaskBatchItem.task_batch_id == task.id).first()
 if item:
+    # 领取制：先领取该词条，否则上传守卫 403 拦在本区校验之前
+    r = api("POST", f"/api/mp/tasks/{task.id}/claims", token=tok_unbound,
+            body={"word_ids": [item.word_id]})
+    expect(r.status_code == 200, "本区词条领取成功", str(r.status_code) + " " + str(j(r)))
     r = api("POST", "/api/mp/recordings", token=tok_unbound,
             files={"file": ("t.wav", b"RIFF....WAVEfmt ", "audio/wav")},
             body={"task_id": str(task.id), "word_id": str(item.word_id),
@@ -289,11 +294,13 @@ if tc_id:
 # 清理验证数据
 for sp in db.query(Speaker).filter(Speaker.device_id.in_(["verify_unbound", "verify_hb", "verify_invalid", "verify_hb_unbound"])).all():
     db.query(Recording).filter(Recording.speaker_id == sp.id).delete()
+    db.query(TaskClaim).filter(TaskClaim.speaker_id == sp.id).delete()
     db.execute(text("DELETE FROM speaker_agreements WHERE speaker_id = :sid"), {"sid": sp.id})
     db.delete(sp)
 for tc in db.query(TeamCode).filter(TeamCode.code.like(prefix + "%")).all():
     db.delete(tc)
 for t in db.query(TaskBatch).filter(TaskBatch.name.like("验证-%")).all():
+    db.query(TaskClaim).filter(TaskClaim.task_id == t.id).delete()
     db.query(TaskBatchItem).filter(TaskBatchItem.task_batch_id == t.id).delete()
     db.delete(t)
 db.commit()
