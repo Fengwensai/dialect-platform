@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     LOGIN_FAIL_LIMIT: int = 5
     LOGIN_FAIL_WINDOW_SECONDS: int = 900
     LOGIN_IP_FAIL_LIMIT: int = 20
+    # 登录速率节流：每 IP 每窗口最多 LOGIN_ATTEMPT_LIMIT 次尝试（无论成败），
+    # 在失败锁定之外按总流量限次，进一步压暴力破解（成功登录也计数）。
+    LOGIN_ATTEMPT_LIMIT: int = 30
+    LOGIN_ATTEMPT_WINDOW_SECONDS: int = 300
     # 上传频率：单个发音人 UPLOAD_RATE_LIMIT 次 / UPLOAD_RATE_WINDOW_SECONDS 秒
     UPLOAD_RATE_LIMIT: int = 60
     UPLOAD_RATE_WINDOW_SECONDS: int = 600

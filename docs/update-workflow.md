@@ -31,9 +31,11 @@ cd backend
 
 ```bash
 cd backend
-for s in test_api verify_agreements verify_region_isolation verify_task_team_code \
-         verify_mp_full_flow verify_wechat_callback verify_cos_mode \
-         verify_demo_task verify_rate_limit verify_task_claims; do
+for s in test_api verify_agreements verify_cos_mode verify_dashboard verify_demo_task \
+         verify_mp_full_flow verify_rate_limit verify_region_isolation verify_review_batch \
+         verify_review_reset_delete verify_speaker_merge verify_task_claims \
+         verify_task_team_code verify_wechat_callback verify_word_merge \
+         verify_audit_log; do
   ./.venv/Scripts/python.exe scripts/$s.py || echo "FAIL: $s"
 done
 ```

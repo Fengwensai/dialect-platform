@@ -1,6 +1,6 @@
 # 数据库设计文档
 
-方言采集平台共 **12 张表**（管理后台 7 张 + 小程序发音人端 5 张）。技术栈：PostgreSQL 15 + SQLAlchemy 2。
+方言采集平台共 **13 张表**（管理后台 8 张 + 小程序发音人端 5 张）。技术栈：PostgreSQL 15 + SQLAlchemy 2。
 所有 `*_code` 字段存行政区划 **adcode**（省份 2 位、地市 4 位、区县 6 位，部分直筒子市的镇/街道为 9 位，统一 `VARCHAR(16)`）。
 
 > 说明：表与表之间目前是**逻辑引用**（用整型 id 关联），未声明数据库级 FOREIGN KEY，便于后续按业务扩展。生产前建议补约束或改为外键。
@@ -263,6 +263,32 @@ speaker_agreements ──────────┘
 - **已录制不可退**：存在同 (task, word, speaker) 录音的领取，自退与后台解绑均返回 400；未录可退，退回后词条回池可被他人领取。
 - **存量回填**：`migrate_task_claims.py` 把已有录音的 `(task_id, word_id, speaker_id)` 回填为领取记录（`DISTINCT + ON CONFLICT DO NOTHING`，同词条多人录过只保留一人；可超 `claim_limit`，祖父化，多余可后台解绑）。
 - 迁移脚本：`scripts/migrate_task_claims.py`（幂等，重跑安全）；清理脚本 `scripts/reset_business_data.py` 的 `BUSINESS_TABLES` 已包含本表。
+
+---
+
+## 13. admin_operation_logs — 操作审计日志表（后台完善项 6）
+
+**作用**：记录管理后台**关键写操作**（谁 / 何时 / 改了什么 / 来源 IP），破坏性操作有痕可溯，超管在「审计日志」页（`/audit-logs`）查询。
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `id` | int, PK | 主键 |
+| `admin_id` | int, 可空 | 操作者管理员 id（关联 `admin_users.id`） |
+| `admin_name` | varchar(64) | 操作者姓名**冗余快照**（防删管理员后失联） |
+| `action` | varchar(32), 索引 | 中文动词：发布任务 / 关闭任务 / 重新打开任务 / 删除任务 / 审核通过 / 审核驳回 / 批量审核通过 / 批量审核驳回 / 重置为待审 / 删除录音 / 删除发音人 / 合并发音人 / 删除词条 / 合并词条 / 创建管理员 / 修改管理员 / 删除管理员 / 删除团队码 / 解绑领取 / 导入词表 |
+| `target_type` | varchar(32) | 目标对象类型：task / recording / speaker / word / admin / team_code / claim / import |
+| `target_id` | varchar(64), 可空 | 目标对象 id |
+| `summary` | varchar(512) | 人类可读摘要，如「录音 #12「词条」已驳回（噪音大）」 |
+| `detail` | JSON | 结构化信息：批量/导入为 dict（processed/skipped、成功/失败数），修改管理员为字段列表 |
+| `ip` | varchar(64) | 来源 IP（Nginx 反代取 X-Forwarded-For 首段） |
+| `created_at` | timestamptz, 索引 | 操作时间（默认 now()） |
+
+**行为约定**：
+- **原子落库**：与被审操作同一数据库事务（mutation 成功后、commit 前插入），操作失败不落库。
+- **记录范围**：仅高风险+管理类 20 类写操作（含导入词表），跳过常规字段编辑避免日志噪音。
+- **建表**：`scripts/init_db.py` 幂等 `create_all`（已上线库重跑自动建新表，不碰 regions/admins 种子）。
+- **查询**：`GET /api/audit-logs`（超管专属）——`keyword`（管理员名/摘要模糊）、`action`、`admin_id`、`start/end` 时间区间、分页倒序。
+- **回归**：`scripts/verify_audit_log.py`（进程内 35 项断言：20 类操作全部落库、字段完整、查询分页/筛选/倒序/时间区间、省管 403、未登录 401）。
 
 ---
 

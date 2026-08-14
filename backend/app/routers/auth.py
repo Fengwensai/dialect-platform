@@ -14,10 +14,16 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/login", response_model=Token)
 def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
-    """管理后台登录。防爆破：连续失败超限按账号/按 IP 锁定，成功登录清零。"""
+    """管理后台登录。防爆破：登录速率节流（每 IP 限总尝试次数）+ 连续失败超限按账号/按 IP 锁定，成功登录清零。"""
     ip = rate_limit.client_ip(request)
     acct_key = f"login:acct:{body.username}"
     ip_key = f"login:ip:{ip}"
+    if not rate_limit.consume(
+        f"login:attempt:ip:{ip}",
+        settings.LOGIN_ATTEMPT_LIMIT,
+        settings.LOGIN_ATTEMPT_WINDOW_SECONDS,
+    ):
+        raise HTTPException(status_code=429, detail="尝试过于频繁，请稍后再试")
     if rate_limit.blocked(acct_key, settings.LOGIN_FAIL_LIMIT, settings.LOGIN_FAIL_WINDOW_SECONDS) or \
             rate_limit.blocked(ip_key, settings.LOGIN_IP_FAIL_LIMIT, settings.LOGIN_FAIL_WINDOW_SECONDS):
         raise HTTPException(status_code=429, detail="尝试过于频繁，请稍后再试")

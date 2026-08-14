@@ -3,6 +3,7 @@
 覆盖：
 - 登录：连续失败超 LOGIN_FAIL_LIMIT 次后，正确密码也 429；成功登录清零失败计数。
 - 按 IP 限流：同一 IP 失败超 LOGIN_IP_FAIL_LIMIT 次后 429（早于账号上限）。
+- 登录速率节流：同一 IP 窗口内总尝试超 LOGIN_ATTEMPT_LIMIT 次后 429（无论成败）。
 - 上传：同一发音人窗口内超 UPLOAD_RATE_LIMIT 次 → 429；reset 后恢复。
 依赖：httpx（fastapi.testclient）。
 用法: ./.venv/Scripts/python.exe scripts/verify_rate_limit.py
@@ -165,13 +166,34 @@ def main():
         r = c.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
         check("IP 计数清零后恢复登录", r.status_code == 200, str(r.status_code))
 
+        # —— 4. 登录速率节流：每 IP 窗口内总尝试数上限（无论成败）。
+        #      抬高失败锁定上限避免干扰，压低 LOGIN_ATTEMPT_LIMIT 触发节流 ——
+        old["LOGIN_ATTEMPT_LIMIT"] = settings.LOGIN_ATTEMPT_LIMIT
+        settings.LOGIN_FAIL_LIMIT = 100
+        settings.LOGIN_IP_FAIL_LIMIT = 100
+        settings.LOGIN_ATTEMPT_LIMIT = 3
+        ATTEMPT_KEY = f"login:attempt:ip:{IP}"
+        rate_limit.reset(ATTEMPT_KEY)
+        rate_limit.reset("login:acct:throttle_probe")
+        rate_limit.reset(f"login:ip:{IP}")
+        codes = []
+        for i in range(4):
+            r = c.post("/api/auth/login", json={"username": "throttle_probe", "password": "wrong"})
+            codes.append(r.status_code)
+        check("IP 总尝试 3 次后第 4 次 429（速率节流）", codes == [401, 401, 401, 429], str(codes))
+        rate_limit.reset(ATTEMPT_KEY)
+        r = c.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+        check("节流计数清零后恢复登录", r.status_code == 200, str(r.status_code))
+
         cleanup(db)
     finally:
         for k, v in old.items():
             setattr(settings, k, v)
         rate_limit.reset("login:acct:admin")
         rate_limit.reset("login:acct:ip_probe")
+        rate_limit.reset("login:acct:throttle_probe")
         rate_limit.reset(f"login:ip:{IP}")
+        rate_limit.reset(f"login:attempt:ip:{IP}")
         db.close()
 
     with open(OUT, "w", encoding="utf-8") as f:

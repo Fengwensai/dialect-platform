@@ -12,6 +12,7 @@ from app.core.config import settings  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.models.admin import AdminUser  # noqa: E402
+from app.models.audit_log import AdminOperationLog  # noqa: E402 (注册模型)
 from app.models.agreement import Agreement, SpeakerAgreement  # noqa: E402 (注册模型)
 from app.models.import_log import ExcelImportLog  # noqa: E402  (注册模型)
 from app.models.recording import Recording  # noqa: E402  (注册模型)

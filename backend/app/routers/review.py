@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import case, or_
 from sqlalchemy.orm import Session
@@ -33,7 +33,8 @@ from ..schemas.review import (
     TranscriptUpdate,
     VerdictRequest,
 )
-from ..services import storage
+from ..services import rate_limit, storage
+from ..services.audit import log_admin_action
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/review", tags=["review"])
@@ -173,6 +174,7 @@ def list_review_recordings(
 def review_verdict(
     recording_id: int,
     body: VerdictRequest,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -191,6 +193,17 @@ def review_verdict(
     rec.review_note = body.note
     rec.reviewed_by = admin.id
     rec.reviewed_at = datetime.now(timezone.utc)
+    word = db.get(WordLibrary, rec.word_id)
+    log_admin_action(
+        db,
+        admin,
+        "审核通过" if body.approved else "审核驳回",
+        "recording",
+        rec.id,
+        summary=f"录音 #{rec.id}「{word.content if word else rec.word_id}」{'通过' if body.approved else '驳回'}"
+        + (f"（{body.note}）" if body.note else ""),
+        ip=rate_limit.client_ip(request),
+    )
     db.commit()
     db.refresh(rec)
     return _enrich(rec, db)
@@ -199,6 +212,7 @@ def review_verdict(
 @router.post("/batch-verdict", response_model=BatchVerdictResult)
 def batch_review_verdict(
     body: BatchVerdictRequest,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -243,6 +257,15 @@ def batch_review_verdict(
         raise HTTPException(
             status_code=400, detail="所选录音均无需审核（已审过或不在本省范围）"
         )
+    log_admin_action(
+        db,
+        admin,
+        "批量审核通过" if body.approved else "批量审核驳回",
+        "recording",
+        summary=f"批量{'通过' if body.approved else '驳回'}录音 {processed} 条（跳过 {len(ids) - processed} 条）",
+        detail={"processed": processed, "skipped": len(ids) - processed},
+        ip=rate_limit.client_ip(request),
+    )
     db.commit()
     return BatchVerdictResult(processed=processed, skipped=len(ids) - processed)
 
@@ -250,6 +273,7 @@ def batch_review_verdict(
 @router.post("/recordings/{recording_id}/reset", response_model=ReviewRecordingOut)
 def reset_recording_to_pending(
     recording_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -273,6 +297,11 @@ def reset_recording_to_pending(
     rec.review_note = None
     rec.reviewed_by = None
     rec.reviewed_at = None
+    log_admin_action(
+        db, admin, "重置为待审", "recording", rec.id,
+        summary=f"重置录音 #{rec.id} 为待审",
+        ip=rate_limit.client_ip(request),
+    )
     db.commit()
     db.refresh(rec)
     return _enrich(rec, db)
@@ -281,6 +310,7 @@ def reset_recording_to_pending(
 @router.delete("/recordings/{recording_id}")
 def delete_rejected_recording(
     recording_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -301,6 +331,11 @@ def delete_rejected_recording(
     if rec.status != "rejected":
         raise HTTPException(status_code=400, detail="仅已驳回的录音可删除")
     storage.delete_object(rec.audio_url)  # COS/本地统一，失败不阻断
+    log_admin_action(
+        db, admin, "删除录音", "recording", rec.id,
+        summary=f"删除录音 #{rec.id}",
+        ip=rate_limit.client_ip(request),
+    )
     db.delete(rec)
     db.commit()
     return {"detail": "已删除"}

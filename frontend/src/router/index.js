@@ -17,7 +17,8 @@ const routes = [
       { path: 'teams', name: 'teams', component: () => import('../views/TeamManage.vue'), meta: { title: '团队管理' } },
       { path: 'regions', name: 'regions', component: () => import('../views/RegionView.vue'), meta: { title: '行政区划' } },
       { path: 'agreements', name: 'agreements', component: () => import('../views/AgreementManage.vue'), meta: { title: '协议管理', superOnly: true } },
-      { path: 'users', name: 'users', component: () => import('../views/UserManage.vue'), meta: { title: '管理员管理', superOnly: true } }
+      { path: 'users', name: 'users', component: () => import('../views/UserManage.vue'), meta: { title: '管理员管理', superOnly: true } },
+      { path: 'audit-logs', name: 'auditLogs', component: () => import('../views/AuditLog.vue'), meta: { title: '审计日志', superOnly: true } }
     ]
   }
 ]

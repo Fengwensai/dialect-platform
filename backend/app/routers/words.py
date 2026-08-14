@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -10,7 +10,8 @@ from ..models.task import TaskBatch, TaskBatchItem
 from ..models.task_claim import TaskClaim
 from ..models.word import WordLibrary
 from ..schemas.word import WordMergeRequest, WordOut, WordUpdate
-from ..services import storage
+from ..services import rate_limit, storage
+from ..services.audit import log_admin_action
 from ..services.region_matcher import match_region
 from .speakers import _pick_better_recording
 
@@ -123,6 +124,7 @@ def check_duplicate_word(
 @router.post("/merge")
 def merge_words(
     body: WordMergeRequest,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -187,6 +189,23 @@ def merge_words(
             keep_item_tasks.add(it.task_batch_id)
             moved_item += 1
 
+    log_admin_action(
+        db,
+        admin,
+        "合并词条",
+        "word",
+        keep.id,
+        summary=f"合并词条 #{remove.id}「{remove.content}」→ #{keep.id}「{keep.content}」",
+        detail={
+            "moved_recordings": moved_rec,
+            "removed_recordings": removed_rec,
+            "moved_claims": moved_claim,
+            "removed_claims": removed_claim,
+            "moved_items": moved_item,
+            "removed_items": removed_item,
+        },
+        ip=rate_limit.client_ip(request),
+    )
     db.delete(remove)
     db.commit()
     return {
@@ -234,6 +253,7 @@ def update_word(
 @router.delete("/{word_id}")
 def delete_word(
     word_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -245,6 +265,15 @@ def delete_word(
     # 清理任务包中的引用，避免孤儿数据；领取记录一并清，防止孤儿 claim 永久占池
     db.query(TaskClaim).filter(TaskClaim.word_id == word_id).delete()
     db.query(TaskBatchItem).filter(TaskBatchItem.word_id == word_id).delete()
+    log_admin_action(
+        db,
+        admin,
+        "删除词条",
+        "word",
+        word.id,
+        summary=f"删除词条 #{word.id}「{word.content}」",
+        ip=rate_limit.client_ip(request),
+    )
     db.delete(word)
     db.commit()
     return {"ok": True}

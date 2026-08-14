@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,8 @@ from ..models.team_code import TeamCode
 from ..models.word import WordLibrary
 from ..schemas.task import TaskBatchCreate, TaskBatchOut, TaskBatchUpdate, TaskClaimAdminOut
 from ..schemas.word import WordOut
+from ..services import rate_limit
+from ..services.audit import log_admin_action
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -166,6 +168,7 @@ def list_tasks(
 @router.post("/{batch_id}/publish", response_model=TaskBatchOut)
 def publish_task(
     batch_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -179,6 +182,11 @@ def publish_task(
 
     batch.status = "published"
     batch.published_at = datetime.now(timezone.utc)
+    log_admin_action(
+        db, admin, "发布任务", "task", batch.id,
+        summary=f"发布任务 #{batch.id}「{batch.name}」",
+        ip=rate_limit.client_ip(request),
+    )
     db.commit()
     db.refresh(batch)
 
@@ -289,6 +297,7 @@ def update_task(
 @router.post("/{batch_id}/close", response_model=TaskBatchOut)
 def close_task(
     batch_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -297,6 +306,11 @@ def close_task(
     if batch.status != "published":
         raise HTTPException(status_code=400, detail="仅已发布任务可关闭")
     batch.status = "closed"
+    log_admin_action(
+        db, admin, "关闭任务", "task", batch.id,
+        summary=f"关闭任务 #{batch.id}「{batch.name}」",
+        ip=rate_limit.client_ip(request),
+    )
     db.commit()
     db.refresh(batch)
     return _task_out(db, batch)
@@ -305,6 +319,7 @@ def close_task(
 @router.post("/{batch_id}/reopen", response_model=TaskBatchOut)
 def reopen_task(
     batch_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -314,6 +329,11 @@ def reopen_task(
         raise HTTPException(status_code=400, detail="仅已关闭任务可重新打开")
     batch.status = "published"
     batch.published_at = datetime.now(timezone.utc)
+    log_admin_action(
+        db, admin, "重新打开任务", "task", batch.id,
+        summary=f"重新打开任务 #{batch.id}「{batch.name}」",
+        ip=rate_limit.client_ip(request),
+    )
     db.commit()
     db.refresh(batch)
     return _task_out(db, batch)
@@ -322,6 +342,7 @@ def reopen_task(
 @router.delete("/{batch_id}")
 def delete_task(
     batch_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -338,6 +359,11 @@ def delete_task(
         raise HTTPException(status_code=400, detail="该任务已有录音，不能删除")
     db.query(TaskClaim).filter(TaskClaim.task_id == batch.id).delete()
     db.query(TaskBatchItem).filter(TaskBatchItem.task_batch_id == batch.id).delete()
+    log_admin_action(
+        db, admin, "删除任务", "task", batch.id,
+        summary=f"删除任务 #{batch.id}「{batch.name}」",
+        ip=rate_limit.client_ip(request),
+    )
     db.delete(batch)
     db.commit()
     return {"detail": "已删除"}
@@ -394,6 +420,7 @@ def task_claims_list(
 def admin_unbind_claim(
     batch_id: int,
     claim_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -413,6 +440,11 @@ def admin_unbind_claim(
     )
     if rec is not None:
         raise HTTPException(status_code=400, detail="该词条已录制，不能解绑")
+    log_admin_action(
+        db, admin, "解绑领取", "claim", claim_id,
+        summary=f"任务 #{batch_id} 词条 #{claim.word_id} 解绑领取（发音人 #{claim.speaker_id}）",
+        ip=rate_limit.client_ip(request),
+    )
     db.delete(claim)
     db.commit()
     return {"detail": "已解绑"}

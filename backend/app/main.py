@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from .core.config import settings
 from .routers import (
     agreements,
+    audit,
     auth,
     dashboard,
     excel,
@@ -36,6 +37,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(audit.router)
 app.include_router(excel.router)
 app.include_router(words.router)
 app.include_router(regions.router)

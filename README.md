@@ -6,6 +6,7 @@
 - **阶段九**（三份协议登录确认）：用户协议 / 隐私政策 / 声音单独授权协议三份协议，小程序登录时**三勾选全部同意才能登录**（不勾选无法登录）；后台「协议管理」页可编辑（编辑=生成不可变新版本，发布后所有发音人需重新同意），后端对未同意最新版的功能接口**强制 403**，客户端无法绕过。
 - **阶段十二**（管理后台数据看板 + 数据质量）：后台新增「**数据看板**」页 —— 平台/本省**概览数字卡片**（发音人/录音/待审/通过/驳回/总时长/有效时长/通过率）+ **近 7/30 天录音趋势数字卡片** + **词条采集难度表**（按词条聚合录音/通过/驳回/通过率/驳回率，默认驳回多优先）+ **区域分布小表** + **每发音人一行关键指标的明细表**（录音/审核/时长/通过率/任务数/词条数/最近活跃，可筛选、5 种排序、导出时长 CSV），点进发音人可下钻**录音明细**（试听/筛选/导出）与**领取记录**（词条/任务/是否已录）。省管理员自动钳制为本省数据。
 - **数据质量治理**（后台完善项 4/5）：词条编辑保存前**查重提示**（仅提示不拦截，方言词同词异音可确认后保存）；词条库 / 发音人管理支持**合并**（把重复词条/多身份发音人并为一个，录音/领取/任务引用按状态保留策略迁移去重，淘汰者连带清理存储文件，词条合并且自动处理任务条目冲突）；看板补**录音趋势**与**词条采集难度**两个时间/质量维度。
+- **后台完善项 6/7**（管理安全）：**操作审计日志** —— 关键写操作（任务发布/关闭/删除、审核通过/驳回/批量/重置/删除、删除/合并发音人、删除/合并词条、管理员增删改、删除团队码、解绑领取、词表导入）原子落库 `admin_operation_logs`（谁/何时/改了什么/来源 IP），超管可见「审计日志」页（`/audit-logs`，按操作/管理员/时间区间/关键词筛选分页）；**管理员登录安全** —— 在原有失败锁定（账号 5 次/15 分 + IP 20 次/15 分，成功清零）之上新增**登录速率节流**（每 IP 每 5 分钟最多 30 次尝试，无论成败，进一步压暴力破解）。
 
 ## 目录
 
@@ -30,7 +31,7 @@ backend/                     # FastAPI
     core/                    # 配置、JWT/密码、鉴权依赖
     models/                  # 数据模型
     schemas/                 # Pydantic 校验
-    routers/                 # auth/excel/words/regions/tasks/users/agreements/mp/review/team_codes
+    routers/                 # auth/excel/words/regions/tasks/users/agreements/mp/review/team_codes/dashboard/audit
     services/                # Excel 解析、区划匹配、微信登录
   scripts/
     create_db.sql            # 建库（需 postgres 超级用户密码）
@@ -277,6 +278,20 @@ npm run dev        # http://localhost:5173
 - **后端**：`GET /api/words/check-duplicate`、`POST /api/words/merge`、`POST /api/speakers/merge`；`_pick_better_recording` 状态保留策略助手供两处合并共用。
 - **回归**：新增 `backend/scripts/verify_word_merge.py`（进程内 28 项断言）与 `backend/scripts/verify_speaker_merge.py`（进程内 23 项断言）：查重命中/排除自身/空内容、引用迁移计数、录音冲突去重（含 remove 方胜出归 keep、不产生孤儿引用、淘汰者存储文件删除）、领取/条目/协议冲突、keep==remove 400、越省 403、合并后 remove 消失。
 
+### 后台完善项 6：操作审计日志（已实现）
+
+关键写操作落库 `admin_operation_logs`，超管可查「谁 / 何时 / 改了什么 / 来源 IP」，破坏性操作有痕可溯。
+
+- **落库范围（20 类高风险+管理操作）**：任务发布/关闭/重新打开/删除、录音审核通过/驳回/批量/重置为待审/删除、删除/合并发音人、删除/合并词条、管理员创建/修改/删除、删除团队码、解绑领取、导入词表（跳过常规字段编辑，避免日志噪音）。
+- **字段**：`admin_id`（操作者）+ `admin_name`（冗余快照，防删管理员后失联）+ `action`（中文动词）+ `target_type/target_id`（目标对象）+ `summary`（人类可读，如「录音 #12「词条」已驳回（噪音大）」）+ `detail`（JSON：批量 processed/skipped、导入成功/失败数、修改的字段列表）+ `ip` + `created_at`。与被审操作**同一数据库事务**（mutation 成功后、commit 前插入，原子落库）。
+- **后端**：新表 `admin_operation_logs`（`init_db.py` 幂等建表，本地/生产重跑即可）+ `app/services/audit.py` 的 `log_admin_action` 助手 + `GET /api/audit-logs`（超管专属：`page/page_size`、`keyword`（管理员名/摘要模糊）、`action`、`admin_id`、`start/end` 时间区间，倒序分页）。
+- **前端**：「审计日志」页（`/audit-logs`，仅超管可见）：操作下拉 / 管理员关键词 / 时间范围筛选 + 表格（时间/管理员/操作/目标/摘要/IP）+ 展开行看 detail。
+- **回归**：新增 `backend/scripts/verify_audit_log.py`（进程内 35 项断言：20 类操作全部落库、字段完整、查询分页/筛选/倒序/时间区间、省管 403、未登录 401、start>end 422）。
+
+### 后台完善项 7：管理员登录安全（登录速率节流，已实现）
+
+失败锁定在阶段十已上线（账号 5 次/15 分 + IP 20 次/15 分，锁定 429、成功清零），本轮补**登录速率节流**：每 IP 每窗口无论成败最多 `LOGIN_ATTEMPT_LIMIT`（默认 30）次尝试 / `LOGIN_ATTEMPT_WINDOW_SECONDS`（默认 300 秒），在失败锁定之外按总流量压暴力破解。参数可在 `backend/.env` 调整（`LOGIN_ATTEMPT_LIMIT` / `LOGIN_ATTEMPT_WINDOW_SECONDS`）。回归在 `scripts/verify_rate_limit.py` 新增「IP 总尝试超限 429 + 清零恢复」断言。
+
 ## 开发者工具打开方式
 
 1. 微信开发者工具 →「导入项目」→ 选择 `miniprogram/` 目录。
@@ -303,7 +318,7 @@ python -c "import wave;w=wave.open('out.wav');print(w.getframerate(),w.getnchann
 
 ## 文档
 
-- `docs/database.md` — 数据库表结构与字段含义（11 张表，含 speakers/team_codes/recordings/agreements/speaker_agreements）
+- `docs/database.md` — 数据库表结构与字段含义（13 张表，含 speakers/team_codes/recordings/agreements/speaker_agreements/task_claims/admin_operation_logs）
 - `docs/api.md` — 管理后台接口文档（含团队码管理 `/api/team-codes`、发音人属地纠错、协议管理 `/api/agreements`）
 - `docs/miniprogram-api.md` — 小程序端对接契约（阶段一/二/三/八/九接口均已实现）
 - `docs/deploy-guide.md` — 首次上线部署指南（建资源/域名/COS/systemd/Nginx）

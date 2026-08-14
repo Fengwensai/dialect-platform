@@ -116,6 +116,7 @@
 > 完整部署流程见 **`docs/deploy-guide.md`**（建云资源 → 改配置 → 部署后端 → 自测 → 上传小程序 → 审核 → 发布）。本节是待办清单摘要。
 
 - [ ] 域名备案 + HTTPS，配置微信后台「服务器域名」（request / uploadFile / downloadFile 合法域名）
+- [ ] 登录防爆破参数按需收紧（`backend/.env`）：`LOGIN_ATTEMPT_LIMIT`（每 IP 每 5 分钟总尝试上限，默认 30，无论成败）+ `LOGIN_FAIL_LIMIT`（账号连续失败锁定，默认 5）/`LOGIN_IP_FAIL_LIMIT`（同 IP 多账号失败锁定，默认 20），锁定 15 分钟、成功登录清零
 - [ ] `miniprogram/utils/config.js` 的 `API_BASE` 改为 `https://<你的域名>`
 - [ ] `backend/.env` 填 `MEDIA_PUBLIC_BASE=https://<你的域名>`（启用音频异步内容检测）
 - [ ] `backend/.env` 把 `CORS_ORIGINS` 从 `*` 收紧为实际前端域名

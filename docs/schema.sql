@@ -226,3 +226,22 @@ CREATE INDEX ix_word_library_dialect_point ON word_library (dialect_point);
 CREATE INDEX ix_word_library_district_code ON word_library (district_code);
 CREATE INDEX ix_word_library_province_code ON word_library (province_code);
 CREATE INDEX ix_word_library_status ON word_library (status);
+
+
+CREATE TABLE admin_operation_logs (
+	id SERIAL NOT NULL,
+	admin_id INTEGER,
+	admin_name VARCHAR(64) DEFAULT ''::character varying,
+	action VARCHAR(32) NOT NULL,
+	target_type VARCHAR(32) DEFAULT ''::character varying,
+	target_id VARCHAR(64),
+	summary VARCHAR(512) DEFAULT ''::character varying,
+	detail JSON DEFAULT '[]'::json,
+	ip VARCHAR(64) DEFAULT ''::character varying,
+	created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+	CONSTRAINT admin_operation_logs_pkey PRIMARY KEY (id)
+)
+
+;
+CREATE INDEX ix_admin_operation_logs_action ON admin_operation_logs (action);
+CREATE INDEX ix_admin_operation_logs_created_at ON admin_operation_logs (created_at);

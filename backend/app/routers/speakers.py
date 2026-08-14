@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -34,7 +34,8 @@ from ..schemas.speakers import (
     SpeakerTaskStat,
     SpeakerUpdate,
 )
-from ..services import storage
+from ..services import rate_limit, storage
+from ..services.audit import log_admin_action
 from .mp import AGE_BRACKETS, GENDERS
 
 router = APIRouter(prefix="/api/speakers", tags=["speakers"])
@@ -518,6 +519,7 @@ def export_speaker_recordings(
 @router.delete("/{speaker_id}")
 def delete_speaker(
     speaker_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -547,6 +549,15 @@ def delete_speaker(
         raise HTTPException(status_code=400, detail=f"该发音人已有 {has_recording} 条录音，不能删除")
     db.query(TaskClaim).filter(TaskClaim.speaker_id == speaker_id).delete()
     db.query(SpeakerAgreement).filter(SpeakerAgreement.speaker_id == speaker_id).delete()
+    log_admin_action(
+        db,
+        admin,
+        "删除发音人",
+        "speaker",
+        speaker.id,
+        summary=f"删除发音人 #{speaker.id}「{speaker.nickname or speaker.device_id or '未命名'}」",
+        ip=rate_limit.client_ip(request),
+    )
     db.delete(speaker)
     db.commit()
     # commit 成功后清理本地头像文件（storage 只管录音，头像在 MEDIA_ROOT/avatars；失败不阻断）
@@ -563,6 +574,7 @@ def delete_speaker(
 @router.post("/merge")
 def merge_speakers(
     body: SpeakerMergeRequest,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -652,6 +664,23 @@ def merge_speakers(
     # remove 的 device_id/openid 置空绕过唯一约束，删除 + 清头像文件（commit 后）
     remove.device_id = None
     remove.openid = None
+    log_admin_action(
+        db,
+        admin,
+        "合并发音人",
+        "speaker",
+        keep.id,
+        summary=f"合并发音人 #{remove.id}「{remove.nickname or remove.device_id or ''}」→ #{keep.id}「{keep.nickname or keep.device_id or ''}」",
+        detail={
+            "moved_recordings": moved_rec,
+            "removed_recordings": removed_rec,
+            "moved_claims": moved_claim,
+            "removed_claims": removed_claim,
+            "moved_agreements": moved_agreement,
+            "removed_agreements": removed_agreement,
+        },
+        ip=rate_limit.client_ip(request),
+    )
     db.delete(remove)
     db.commit()
     if remove.avatar_url and remove.avatar_url.startswith("/media/avatars/"):

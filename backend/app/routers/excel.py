@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from ..core.deps import get_current_admin
@@ -7,7 +7,8 @@ from ..models.admin import AdminUser
 from ..models.import_log import ExcelImportLog
 from ..models.word import WordLibrary
 from ..schemas.excel import ExcelRow, ImportRequest, ImportResult, UploadPreview
-from ..services import excel_parser
+from ..services import excel_parser, rate_limit
+from ..services.audit import log_admin_action
 from ..services.region_matcher import match_region, province_from_filename
 
 router = APIRouter(prefix="/api/excel", tags=["excel"])
@@ -59,6 +60,7 @@ def upload_excel(
 @router.post("/import", response_model=ImportResult)
 def import_excel(
     body: ImportRequest,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -109,6 +111,20 @@ def import_excel(
             errors=errors,
             admin_id=admin.id,
         )
+    )
+    log_admin_action(
+        db,
+        admin,
+        "导入词表",
+        "import",
+        summary=f"导入词表「{body.filename}」：成功 {success} / 失败 {len(errors)}",
+        detail={
+            "filename": body.filename[:255],
+            "total_rows": len(body.rows),
+            "success": success,
+            "fail": len(errors),
+        },
+        ip=rate_limit.client_ip(request),
     )
     db.commit()
     return ImportResult(success_count=success, fail_count=len(errors), errors=errors)

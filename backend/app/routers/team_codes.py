@@ -3,7 +3,7 @@
 超管管理全国团队码；省管理员仅能管理本省团队码。改区域/改码会让已绑定发音人
 失联，故只允许改名，区域变更需删除后重建。
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..core.deps import get_current_admin
@@ -12,6 +12,8 @@ from ..models.admin import AdminUser
 from ..models.region import Region
 from ..models.team_code import TeamCode
 from ..schemas.team import TeamCodeCreate, TeamCodeOut, TeamCodeUpdate
+from ..services import rate_limit
+from ..services.audit import log_admin_action
 
 router = APIRouter(prefix="/api/team-codes", tags=["team-codes"])
 
@@ -121,6 +123,7 @@ def update_team_code(
 @router.delete("/{team_id}")
 def delete_team_code(
     team_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -129,6 +132,11 @@ def delete_team_code(
     if tc is None:
         raise HTTPException(status_code=404, detail="团队码不存在")
     _assert_region_scope(admin, tc.province_code)
+    log_admin_action(
+        db, admin, "删除团队码", "team_code", tc.id,
+        summary=f"删除团队码「{tc.code}」{('（' + tc.name + '）') if tc.name else ''}",
+        ip=rate_limit.client_ip(request),
+    )
     db.delete(tc)
     db.commit()
     return {"ok": True}
