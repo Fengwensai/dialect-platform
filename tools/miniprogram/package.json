@@ -1,0 +1,16 @@
+{
+  "name": "dialect-miniprogram-sync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "方言采集平台小程序一键上传/提审（基于微信官方 miniprogram-ci）",
+  "scripts": {
+    "upload": "node sync.js upload"
+  },
+  "dependencies": {
+    "less": "^3.13.1",
+    "miniprogram-ci": "^1.9.17"
+  },
+  "overrides": {
+    "less": "^3.13.1"
+  }
+}

@@ -26,6 +26,11 @@ frontend/vite-current.log
 # 微信开发者工具私密配置（本机专用，含 AppID/URL 检查等本地设置）
 miniprogram/project.private.config.json
 
+# 小程序上传密钥（微信后台生成，泄露可被任意人代传代码，绝不提交）
+tools/miniprogram/keys/
+tools/miniprogram/node_modules/
+*.key
+
 # IDE / OS
 .idea/
 .vscode/
