@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from ..core.deps import get_current_admin
 from ..db import get_db
 from ..models.admin import AdminUser
-from ..models.task import TaskBatchItem
+from ..models.task import TaskBatch, TaskBatchItem
 from ..models.task_claim import TaskClaim
 from ..models.word import WordLibrary
 from ..schemas.word import WordOut, WordUpdate
@@ -28,6 +28,7 @@ def list_words(
     district_code: str | None = None,
     keyword: str | None = None,
     status: str | None = None,
+    exclude_task_id: int | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -63,9 +64,25 @@ def list_words(
         .limit(page_size)
         .all()
     )
+    # 占用制：草稿/已发布任务中的词条被占用（占用仍在列表，仅前端置灰+标签）。
+    # exclude_task_id 用于编辑草稿任务时排除自身词条，避免把自己判为已占用。
+    occ_q = (
+        db.query(TaskBatchItem.word_id)
+        .join(TaskBatch, TaskBatch.id == TaskBatchItem.task_batch_id)
+        .filter(TaskBatch.status.in_(["draft", "published"]))
+    )
+    if exclude_task_id:
+        occ_q = occ_q.filter(TaskBatchItem.task_batch_id != exclude_task_id)
+    occupied_ids = {r[0] for r in occ_q.all()}
+
+    out = []
+    for w in items:
+        o = WordOut.model_validate(w)
+        o.occupied = w.id in occupied_ids
+        out.append(o)
     return {
         "total": total,
-        "items": [WordOut.model_validate(w) for w in items],
+        "items": out,
     }
 
 

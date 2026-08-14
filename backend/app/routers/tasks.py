@@ -40,6 +40,33 @@ def _scope_query(db: Session, admin: AdminUser):
     return q
 
 
+def _reject_occupied(
+    db: Session, word_ids: list[int], exclude_task_id: int | None = None
+):
+    """占用制守卫：word_ids 中若有词条已被其它草稿/已发布任务占用则 400。
+
+    exclude_task_id：编辑草稿任务时排除当前任务自身词条（自己的词条合法）。
+    """
+    if not word_ids:
+        return
+    occ_q = (
+        db.query(TaskBatchItem.word_id)
+        .join(TaskBatch, TaskBatch.id == TaskBatchItem.task_batch_id)
+        .filter(TaskBatch.status.in_(["draft", "published"]))
+        .filter(TaskBatchItem.word_id.in_(word_ids))
+    )
+    if exclude_task_id:
+        occ_q = occ_q.filter(TaskBatchItem.task_batch_id != exclude_task_id)
+    occupied_ids = {r[0] for r in occ_q.all()}
+    if occupied_ids:
+        names = {
+            w.id: w.content
+            for w in db.query(WordLibrary).filter(WordLibrary.id.in_(occupied_ids)).all()
+        }
+        label = "、".join(names.get(i, f"#{i}") for i in sorted(occupied_ids))
+        raise HTTPException(status_code=400, detail=f"词条「{label}」已被其它任务占用，不能重复使用")
+
+
 @router.post("", response_model=TaskBatchOut)
 def create_task(
     body: TaskBatchCreate,
@@ -69,6 +96,7 @@ def create_task(
     words = db.query(WordLibrary).filter(WordLibrary.id.in_(body.word_ids)).all()
     if admin.role == "province_admin":
         words = [w for w in words if w.province_code == admin.province_code]
+    _reject_occupied(db, [w.id for w in words])
 
     batch = TaskBatch(
         name=body.name,
@@ -247,6 +275,8 @@ def update_task(
         words = db.query(WordLibrary).filter(WordLibrary.id.in_(data["word_ids"])).all()
         if admin.role == "province_admin":
             words = [w for w in words if w.province_code == admin.province_code]
+        # 占用制：编辑时排除当前任务自身词条，自己的词条合法
+        _reject_occupied(db, [w.id for w in words], exclude_task_id=batch.id)
         db.query(TaskBatchItem).filter(TaskBatchItem.task_batch_id == batch.id).delete()
         for w in words:
             db.add(TaskBatchItem(task_batch_id=batch.id, word_id=w.id))

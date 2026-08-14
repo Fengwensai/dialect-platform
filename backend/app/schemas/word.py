@@ -17,6 +17,7 @@ class WordOut(BaseModel):
     city_code: str | None = None
     district_code: str | None = None
     status: str = "active"
+    occupied: bool = False  # 是否被草稿/已发布任务占用（占用制；仅 list_words 填充，其余场景默认 False）
     created_at: datetime
 
 

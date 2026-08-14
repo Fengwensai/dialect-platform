@@ -221,5 +221,67 @@ else:
     finally:
         db.close()
 
+    print("== 10. 词条占用制 ==")
+    # 任务A 用前 5 条词；游离词「忒好」不入任务
+    occ_ids = word_ids[:5]
+    free_content = "忒好"
+    r = requests.post(
+        f"{BASE}/api/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"name": "占用制任务A", "province_code": "13", "required_audio_count": 30, "word_ids": occ_ids},
+    )
+    task_a = r.json()
+    occ_tid = task_a["id"]
+    check("任务A创建", task_a.get("id") is not None and task_a["word_count"] == 5, f"{task_a}")
+
+    r = requests.get(f"{BASE}/api/words", headers={"Authorization": f"Bearer {admin_token}"}, params={"province_code": "13", "page_size": 100})
+    occ = {w["content"]: w["occupied"] for w in r.json()["items"]}
+    check("任务A词条 occupied=true", all(occ.get(w["content"]) is True for w in words["items"] if w["id"] in occ_ids), f"{occ}")
+    check("游离词条 occupied=false", occ.get(free_content) is False, f"{occ}")
+
+    # 用已占用词条建任务B → 400（占用守卫）
+    r = requests.post(
+        f"{BASE}/api/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"name": "占用制任务B(应拒)", "province_code": "13", "required_audio_count": 30, "word_ids": [occ_ids[0]]},
+    )
+    check("已占用词条建任务被拒 400", r.status_code == 400 and "占用" in r.json().get("detail", ""), f"{r.text}")
+
+    # 编辑草稿任务A 保留自己词条 → 200（exclude_task_id 生效）
+    r = requests.patch(
+        f"{BASE}/api/tasks/{occ_tid}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"word_ids": occ_ids},
+    )
+    check("编辑草稿保留自己词条 200", r.status_code == 200 and r.json()["word_count"] == 5, f"{r.text}")
+
+    # 发布 → 关闭 → 释放回池 → 原词条可再建任务B
+    r = requests.post(f"{BASE}/api/tasks/{occ_tid}/publish", headers={"Authorization": f"Bearer {admin_token}"})
+    check("任务A发布", r.status_code == 200, f"{r.text}")
+    r = requests.post(f"{BASE}/api/tasks/{occ_tid}/close", headers={"Authorization": f"Bearer {admin_token}"})
+    check("任务A关闭", r.status_code == 200, f"{r.text}")
+    r = requests.get(f"{BASE}/api/words", headers={"Authorization": f"Bearer {admin_token}"}, params={"province_code": "13", "page_size": 100})
+    occ = {w["content"]: w["occupied"] for w in r.json()["items"]}
+    check("关闭后词条释放 occupied=false", all(occ.get(w["content"]) is False for w in words["items"]), f"{occ}")
+
+    r = requests.post(
+        f"{BASE}/api/tasks",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"name": "占用制任务B", "province_code": "13", "required_audio_count": 30, "word_ids": [occ_ids[0]]},
+    )
+    task_b = r.json()
+    occ_tid_b = task_b.get("id")
+    check("释放后原词条可再建任务B 200", r.status_code == 200 and occ_tid_b is not None, f"{task_b}")
+
+    # 清理自建夹具
+    db = SessionLocal()
+    try:
+        db.query(TaskClaim).filter(TaskClaim.task_id.in_([occ_tid, occ_tid_b])).delete()
+        db.query(TaskBatchItem).filter(TaskBatchItem.task_batch_id.in_([occ_tid, occ_tid_b])).delete()
+        db.query(TaskBatch).filter(TaskBatch.id.in_([occ_tid, occ_tid_b])).delete()
+        db.commit()
+    finally:
+        db.close()
+
 print(f"\n结果: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

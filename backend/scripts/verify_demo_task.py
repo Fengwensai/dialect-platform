@@ -100,8 +100,11 @@ def main():
                          example_sentence="测试。", province_code=DEMO_PROV, status="active")
         w2 = WordLibrary(code="VFY-D2", dialect_point="北京话", content="演示词条二",
                          example_sentence="测试。", province_code=DEMO_PROV, status="active")
+        w3 = WordLibrary(code="VFY-D3", dialect_point="石家庄话", content="真实任务词条",
+                         example_sentence="测试。", province_code=REAL_PROV, status="active")
         db.add(w1)
         db.add(w2)
+        db.add(w3)
         db.flush()
         db.commit()
         r = c.post("/api/tasks", headers=SUPER, json={
@@ -115,7 +118,7 @@ def main():
         r = c.post("/api/tasks", headers=SUPER, json={
             "name": "验证演示-真实任务", "description": "真实地区任务",
             "province_code": REAL_PROV, "city_code": REAL_CITY, "team_code": None,
-            "required_audio_count": 2, "word_ids": [w2.id], "is_demo": False})
+            "required_audio_count": 2, "word_ids": [w3.id], "is_demo": False})
         real_id = r.json().get("id") if r.status_code == 200 else None
         check("建真实任务", r.status_code == 200 and real_id, str(r.status_code))
         c.post(f"/api/tasks/{real_id}/publish", headers=SUPER)

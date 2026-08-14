@@ -99,15 +99,15 @@ def main():
                    json={"code": TEAM, "name": "验证领取团队", "province_code": PROV, "city_code": CITY})
         check("建团队码 VFY0-CLM", r.status_code == 200, str(r.status_code) + " " + str(r.json()))
         words = []
-        for i in range(1, 6):
+        for i in range(1, 9):
             w = WordLibrary(code=f"VFY-C{i}", dialect_point="北京话", content=f"领取验证词条{i}",
                             example_sentence="测试。", province_code=PROV, status="active")
             db.add(w)
             db.flush()
             words.append(w)
         db.commit()
-        w1, w2, w3, w4, w5 = words
-        check("直写词条 5 条", all(w.id for w in words), f"ids={[w.id for w in words]}")
+        w1, w2, w3, w4, w5, w6, w7, w8 = words
+        check("直写词条 8 条", all(w.id for w in words), f"ids={[w.id for w in words]}")
 
         # —— 2. 任务 A（claim_limit=10，池 3）+ 任务 B（claim_limit=2，池 5），均发布 ——
         def make_task(name, ids, limit):
@@ -120,7 +120,7 @@ def main():
             return tid
 
         ta = make_task("验证领取任务", [w1.id, w2.id, w3.id], 10)
-        tb = make_task("验证领取-上限", [w1.id, w2.id, w3.id, w4.id, w5.id], 2)
+        tb = make_task("验证领取-上限", [w4.id, w5.id, w6.id, w7.id, w8.id], 2)
         check("建任务 A/B 并发布", bool(ta and tb), f"ta={ta} tb={tb}")
 
         # —— 3. 发音人：sp_a / sp_b / sp_x + 并发 10 人，均绑团队 + 同意协议 ——

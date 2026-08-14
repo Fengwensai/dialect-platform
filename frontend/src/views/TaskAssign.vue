@@ -80,10 +80,15 @@
       </div>
 
       <el-table ref="wordsTable" :data="words" row-key="id" v-loading="wordsLoading" border size="small" max-height="360" @selection-change="onSelectionChange">
-        <el-table-column type="selection" width="46" :reserve-selection="true" />
+        <el-table-column type="selection" width="46" :reserve-selection="true" :selectable="(row) => !row.occupied" />
         <el-table-column prop="code" label="编号" width="100" show-overflow-tooltip />
         <el-table-column prop="dialect_point" label="方言点" width="150" show-overflow-tooltip />
-        <el-table-column prop="content" label="词条内容" min-width="140" show-overflow-tooltip />
+        <el-table-column label="词条内容" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.content }}
+            <el-tag v-if="row.occupied" size="small" type="info" style="margin-left: 4px">已占用</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="example_sentence" label="例句" min-width="180" show-overflow-tooltip />
       </el-table>
       <el-pagination
@@ -201,9 +206,10 @@
             placeholder="搜索并选择词条"
             style="width: 100%"
           >
-            <el-option v-for="w in editWordOptions" :key="w.id" :label="w.content" :value="w.id">
+            <el-option v-for="w in editWordOptions" :key="w.id" :label="w.content" :value="w.id" :disabled="w.occupied">
               <span>{{ w.content }}</span>
               <span class="opt-code">{{ w.code }}</span>
+              <el-tag v-if="w.occupied" size="small" type="info" style="margin-left: 4px">已占用</el-tag>
             </el-option>
           </el-select>
           <div class="tip">已选 {{ editWordIds.length }} 条词条；输入关键词搜索加入或移除。</div>
@@ -426,15 +432,27 @@ async function selectAllFiltered() {
       ElMessage.info('当前筛选下没有可选的词条')
       return
     }
+    const selectable = all.filter((w) => !w.occupied)
+    const occupiedCount = all.length - selectable.length
+    if (!selectable.length) {
+      ElMessage.info('当前筛选下词条均已被其它任务占用')
+      return
+    }
     try {
-      await ElMessageBox.confirm(`将选中全部 ${all.length} 条匹配词条（跨全部分页），已选的保留。确定？`, '跨页全选', { type: 'warning' })
+      await ElMessageBox.confirm(
+        `将选中全部 ${selectable.length} 条匹配词条（跨全部分页），已选的保留。` +
+        (occupiedCount ? `另有 ${occupiedCount} 条已占用将跳过。` : '') +
+        '确定？',
+        '跨页全选',
+        { type: 'warning' }
+      )
     } catch (e) { return }
     const table = wordsTable.value
-    all.forEach((w) => {
+    selectable.forEach((w) => {
       table.toggleRowSelection(w, true)
       selectedWords.value.add(w.id)
     })
-    ElMessage.success(`已全选 ${all.length} 条`)
+    ElMessage.success(`已全选 ${selectable.length} 条${occupiedCount ? `（跳过 ${occupiedCount} 条已占用）` : ''}`)
   } finally {
     selectingAll.value = false
   }
@@ -534,7 +552,9 @@ async function searchEditWords(query) {
   if (!query) return
   editWordLoading.value = true
   try {
-    const data = await request.get('/words', { params: { keyword: query, page_size: 20, status: 'active' } })
+    const data = await request.get('/words', {
+      params: { keyword: query, page_size: 20, status: 'active', exclude_task_id: editForm.id || undefined }
+    })
     mergeEditOptions(data.items)
   } finally {
     editWordLoading.value = false
