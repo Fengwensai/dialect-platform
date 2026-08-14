@@ -1,0 +1,11 @@
+[Unit]
+Description=方言采集平台健康监控（自愈）
+After=network.target dialect-api.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/bin/bash /opt/dialect/backend/scripts/monitor.sh
+
+[Install]
+WantedBy=multi-user.target

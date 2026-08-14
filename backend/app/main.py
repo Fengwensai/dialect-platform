@@ -2,9 +2,12 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from .core.config import settings
+from .db import SessionLocal
 from .routers import (
     agreements,
     audit,
@@ -59,4 +62,19 @@ app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    """健康检查：探测数据库连通性。DB 正常返回 200 + db:true；DB 挂返回 503 + db:false。
+    供服务器自愈监控（scripts/monitor.sh）与外部探活（UptimeRobot 等）使用。"""
+    db_ok = True
+    try:
+        with SessionLocal() as s:
+            s.execute(text("SELECT 1"))
+    except Exception:
+        db_ok = False
+    return JSONResponse(
+        {
+            "status": "ok" if db_ok else "degraded",
+            "db": db_ok,
+            "version": "1",
+        },
+        status_code=200 if db_ok else 503,
+    )

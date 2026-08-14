@@ -1,0 +1,9 @@
+[Unit]
+Description=每分钟运行方言采集平台健康监控
+
+[Timer]
+OnCalendar=*:*:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

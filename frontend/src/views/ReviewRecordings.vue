@@ -44,6 +44,33 @@
           导出已通过数据集
         </el-button>
         <span class="total">共 {{ total }} 条</span>
+
+        <!-- 快捷键模式开关 + 帮助 -->
+        <el-switch
+          v-model="shortcutMode"
+          active-text="快捷键"
+          inactive-text="快捷键"
+          inline-prompt
+          style="--el-switch-on-color: #409eff"
+          @change="onShortcutToggle"
+        />
+        <el-popover placement="bottom" :width="340" trigger="click" popper-class="keys-help">
+          <template #reference>
+            <el-button :icon="QuestionFilled" circle size="small" title="快捷键帮助" />
+          </template>
+          <div class="keys-help">
+            <div class="kh-title">审核快捷键（当前：{{ shortcutMode ? '开启' : '关闭' }}）</div>
+            <div class="kh-row"><span class="kbd">空格</span><span>播放 / 暂停当前单</span></div>
+            <div class="kh-row"><span class="kbd">→</span><span class="kbd">N</span><span>下一单</span></div>
+            <div class="kh-row"><span class="kbd">←</span><span class="kbd">P</span><span>上一单</span></div>
+            <div class="kh-row"><span class="kbd">A</span><span>通过当前单（免确认快审）</span></div>
+            <div class="kh-row"><span class="kbd">R</span><span>驳回当前单（用底部驳回原因）</span></div>
+            <div class="kh-row"><span class="kbd">T</span><span>编辑当前单转写</span></div>
+            <div class="kh-row"><span class="kbd">G</span><span>切换「审后自动播放下一条」</span></div>
+            <div class="kh-row"><span class="kbd">Esc</span><span>停止播放 / 关闭弹窗</span></div>
+            <div class="kh-tip">输入框 / 弹窗打开时仅 Esc 生效；下方可滚动区域的音频用单播放器试听。</div>
+          </div>
+        </el-popover>
       </div>
     </el-card>
 
@@ -63,11 +90,15 @@
         <el-button size="small" @click="clearSelection">取消选择</el-button>
       </div>
       <el-table
+        ref="tableRef"
         :data="items"
         v-loading="loading"
         border
         stripe
+        row-key="id"
+        highlight-current-row
         @selection-change="onSelectionChange"
+        @current-change="onCurrentChange"
       >
         <el-table-column type="selection" width="45" :selectable="(row) => row.status === 'pending'" />
         <el-table-column prop="id" label="ID" width="60" />
@@ -81,9 +112,9 @@
         <el-table-column label="发音人" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.speaker_nickname || row.speaker_device || '-' }}</template>
         </el-table-column>
-        <el-table-column label="音频" min-width="250">
+        <el-table-column label="音频" width="90">
           <template #default="{ row }">
-            <audio controls :src="row.audio_url" preload="none" class="player" />
+            <el-button link type="primary" :icon="VideoPlay" @click="setCurrentRow(row, { play: true })">试听</el-button>
           </template>
         </el-table-column>
         <el-table-column label="转写" min-width="180" show-overflow-tooltip>
@@ -121,8 +152,8 @@
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openTrans(row)">转写</el-button>
-            <el-button v-if="row.status !== 'approved'" link type="success" @click="approve(row)">通过</el-button>
-            <el-button v-if="row.status !== 'rejected'" link type="danger" @click="reject(row)">驳回</el-button>
+            <el-button v-if="row.status !== 'approved'" link type="success" @click="fastApprove(row)">通过</el-button>
+            <el-button v-if="row.status !== 'rejected'" link type="danger" @click="fastReject(row)">驳回</el-button>
             <template v-if="row.status === 'rejected'">
               <el-button link type="warning" :icon="RefreshLeft" @click="resetReview(row)">重置</el-button>
               <el-button link type="danger" :icon="Delete" @click="removeRecording(row)">删除</el-button>
@@ -130,6 +161,52 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 当前单播放器栏（单播放器 + 快审） -->
+      <div v-if="currentRow" class="player-bar">
+        <div class="pb-info">
+          <el-tag size="small" :type="statusMeta[currentRow.status]?.type || 'info'">
+            {{ statusMeta[currentRow.status]?.label || currentRow.status }}
+          </el-tag>
+          <span class="pb-word">{{ currentRow.word_content }}</span>
+          <span class="pb-sub">{{ currentRow.speaker_nickname || currentRow.speaker_device || '-' }}</span>
+          <span class="pb-sub">{{ fmtDuration(currentRow.audio_duration) }}</span>
+          <span class="pb-sub">#{{ currentRow.id }}</span>
+        </div>
+        <audio
+          ref="audioRef"
+          :src="currentRow.audio_url"
+          preload="metadata"
+          class="pb-audio"
+          @canplay="onCanplay"
+          @ended="onEnded"
+        />
+        <div class="pb-actions">
+          <el-button size="small" :icon="VideoPlay" @click="togglePlay">播放/暂停</el-button>
+          <el-input
+            v-model="rejectNote"
+            size="small"
+            placeholder="驳回原因（可选）"
+            clearable
+            class="pb-note"
+            @keydown.stop
+          />
+          <el-button
+            size="small"
+            type="success"
+            :disabled="currentRow.status === 'approved'"
+            @click="fastApprove()"
+          >通过</el-button>
+          <el-button
+            size="small"
+            type="danger"
+            :disabled="currentRow.status === 'rejected'"
+            @click="fastReject()"
+          >驳回</el-button>
+          <el-button size="small" @click="openTrans(currentRow)">转写</el-button>
+          <el-switch v-model="autoPlayNext" active-text="自动播下一条" inline-prompt size="small" />
+        </div>
+      </div>
 
       <!-- 转写编辑弹窗 -->
       <el-dialog v-model="transDialog.visible" title="录音转写" width="520px" :close-on-click-modal="false">
@@ -180,9 +257,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, RefreshLeft, Download, CircleCheck, CircleClose, Delete } from '@element-plus/icons-vue'
+import { Search, RefreshLeft, Download, CircleCheck, CircleClose, Delete, VideoPlay, QuestionFilled } from '@element-plus/icons-vue'
 import request from '../api/request'
 import { useAuthStore } from '../stores/auth'
 import { useRegionStore } from '../stores/regions'
@@ -213,6 +290,17 @@ const taskOptions = ref([])
 const transDialog = ref({ visible: false, id: null, word: '', mandarin: '', dialect: '' })
 const savingTrans = ref(false)
 
+// 当前单 + 单播放器状态
+const tableRef = ref(null)
+const audioRef = ref(null)
+const currentId = ref(null)
+const pendingPlay = ref(false) // 设置 src 后等待 canplay 再自动播放，避免竞态
+const shortcutMode = ref(true) // 快捷键模式开关，默认开
+const autoPlayNext = ref(true) // 审后自动播放下一条
+const rejectNote = ref('') // 快审驳回原因（底部栏输入）
+
+const currentRow = computed(() => items.value.find((r) => r.id === currentId.value) || null)
+
 const provinceOptions = computed(() => {
   if (auth.isSuper) return regionStore.tree
   const locked = auth.provinceCode
@@ -232,8 +320,10 @@ function fmtDuration(ms) {
   return s.toFixed(1) + 's'
 }
 
-async function load() {
+async function load(onDone) {
   loading.value = true
+  // 刷新即清空当前行/播放，避免残留高亮指向已不存在的行
+  currentId.value = null
   try {
     const params = { page: page.value, page_size: pageSize.value }
     if (filterTaskId.value) params.task_id = filterTaskId.value
@@ -245,8 +335,10 @@ async function load() {
     items.value = data.items
     total.value = data.total
     selection.value = [] // 翻页/刷新后清空勾选，避免残留
+    tableRef.value?.setCurrentRow(null)
   } finally {
     loading.value = false
+    onDone?.()
   }
 }
 
@@ -332,28 +424,207 @@ async function saveTrans() {
   }
 }
 
-async function approve(row) {
-  await ElMessageBox.confirm(`确定通过录音 #${row.id}「${row.word_content}」吗？`, '通过', { type: 'success' })
-  await request.post(`/review/recordings/${row.id}/verdict`, { approved: true })
-  ElMessage.success('已通过')
-  refresh()
+/* ---------- 当前行 + 单播放器 ---------- */
+
+function onCurrentChange(row) {
+  currentId.value = row?.id ?? null
 }
 
-async function reject(row) {
-  let value
-  try {
-    const res = await ElMessageBox.prompt(`驳回录音 #${row.id}「${row.word_content}」`, '驳回', {
-      inputPlaceholder: '驳回原因（可选），如：口音不标准 / 背景噪音大',
-      inputValue: ''
-    })
-    value = res.value
-  } catch (e) {
-    return // 取消
-  }
-  await request.post(`/review/recordings/${row.id}/verdict`, { approved: false, note: value || null })
-  ElMessage.success('已驳回')
-  refresh()
+/** 设置当前行；opts.play 为 true 时在音频就绪后自动播放 */
+function setCurrentRow(row, opts) {
+  stopAudio()
+  currentId.value = row?.id ?? null
+  pendingPlay.value = !!(opts && opts.play)
+  nextTick(() => tableRef.value?.setCurrentRow(row))
 }
+
+function stopAudio() {
+  const a = audioRef.value
+  if (a) {
+    a.pause()
+    a.currentTime = 0
+  }
+  pendingPlay.value = false
+}
+
+function togglePlay() {
+  const r = currentRow.value
+  if (!r) {
+    const first = items.value[0]
+    if (first) setCurrentRow(first, { play: true })
+    return
+  }
+  const a = audioRef.value
+  if (!a) return
+  if (a.paused) {
+    if (a.readyState >= 2) {
+      a.play()
+    } else {
+      pendingPlay.value = true
+      a.load()
+    }
+  } else {
+    a.pause()
+  }
+}
+
+function onCanplay() {
+  if (pendingPlay.value) {
+    pendingPlay.value = false
+    audioRef.value?.play()
+  }
+}
+
+function onEnded() {
+  if (autoPlayNext.value) moveCurrent(1)
+}
+
+/** 按方向移动当前单；越过本页边界时自动翻页并定位首/末行 */
+function moveCurrent(delta) {
+  const list = items.value
+  if (!list.length) return
+  const idx = list.findIndex((r) => r.id === currentId.value)
+  const ni = idx === -1 ? 0 : idx + delta
+  if (ni >= 0 && ni < list.length) {
+    setCurrentRow(list[ni], { play: autoPlayNext.value })
+    return
+  }
+  const nextPage = page.value + delta
+  if (nextPage < 1 || (nextPage - 1) * pageSize.value >= total.value) return
+  page.value = nextPage
+  const wantFirst = delta > 0
+  load(() => {
+    const r = wantFirst ? items.value[0] : items.value[items.value.length - 1]
+    if (r) setCurrentRow(r, { play: autoPlayNext.value })
+  })
+}
+
+/* ---------- 快审（免确认，判后自动推进） ---------- */
+
+async function fastApprove(row) {
+  const r = row || currentRow.value
+  if (!r || r.status === 'approved') return
+  setCurrentRow(r)
+  try {
+    await request.post(`/review/recordings/${r.id}/verdict`, { approved: true })
+    ElMessage.success(`已通过 #${r.id}`)
+  } catch (e) {
+    return
+  }
+  removeAndAdvance(r)
+}
+
+async function fastReject(row) {
+  const r = row || currentRow.value
+  if (!r || r.status === 'rejected') return
+  setCurrentRow(r)
+  try {
+    await request.post(`/review/recordings/${r.id}/verdict`, { approved: false, note: rejectNote.value || null })
+    ElMessage.success(`已驳回 #${r.id}`)
+  } catch (e) {
+    return
+  }
+  removeAndAdvance(r)
+}
+
+/** 从列表剔除已判行、总数减一、游标推进到下一行；本页审空自动翻页 */
+function removeAndAdvance(r) {
+  const list = items.value
+  const idx = list.findIndex((x) => x.id === r.id)
+  selection.value = selection.value.filter((x) => x.id !== r.id)
+  if (idx !== -1) {
+    list.splice(idx, 1)
+    total.value--
+  }
+  if (list.length) {
+    const next = list[Math.min(idx, list.length - 1)]
+    setCurrentRow(next, { play: autoPlayNext.value })
+  } else if (page.value * pageSize.value < total.value) {
+    page.value++
+    load(() => {
+      const first = items.value[0]
+      if (first) setCurrentRow(first, { play: autoPlayNext.value })
+    })
+  } else if (page.value > 1 && (page.value - 1) * pageSize.value >= total.value) {
+    page.value--
+    load(() => {
+      const last = items.value[items.value.length - 1]
+      if (last) setCurrentRow(last, { play: autoPlayNext.value })
+    })
+  } else {
+    currentId.value = null
+  }
+}
+
+/* ---------- 快捷键 ---------- */
+
+function onShortcutToggle(val) {
+  if (!val) stopAudio()
+  ElMessage.info(val ? '快捷键已开启' : '快捷键已关闭')
+}
+
+function onKeydown(e) {
+  if (!shortcutMode.value) return
+  if (e.ctrlKey || e.metaKey || e.altKey) return
+  const tag = (e.target && e.target.tagName) || ''
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)
+
+  // 弹窗打开时只允许 Esc 关闭
+  if (transDialog.value.visible) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      transDialog.value.visible = false
+    }
+    return
+  }
+  // 输入框内不劫持按键
+  if (typing) return
+
+  switch (e.key) {
+    case ' ':
+      e.preventDefault()
+      togglePlay()
+      break
+    case 'ArrowRight':
+    case 'n':
+    case 'N':
+      e.preventDefault()
+      moveCurrent(1)
+      break
+    case 'ArrowLeft':
+    case 'p':
+    case 'P':
+      e.preventDefault()
+      moveCurrent(-1)
+      break
+    case 'a':
+    case 'A':
+      e.preventDefault()
+      fastApprove()
+      break
+    case 'r':
+    case 'R':
+      e.preventDefault()
+      fastReject()
+      break
+    case 't':
+    case 'T':
+      e.preventDefault()
+      if (currentRow.value) openTrans(currentRow.value)
+      break
+    case 'g':
+    case 'G':
+      autoPlayNext.value = !autoPlayNext.value
+      ElMessage.info(autoPlayNext.value ? '已开启审后自动播放下一条' : '已关闭审后自动播放下一条')
+      break
+    case 'Escape':
+      e.preventDefault()
+      stopAudio()
+      break
+  }
+}
+
+/* ---------- 批量 / 重置 / 删除（保留确认框） ---------- */
 
 async function batchApprove() {
   const n = selection.value.length
@@ -411,7 +682,12 @@ onMounted(async () => {
   } catch (e) {
     taskOptions.value = []
   }
+  window.addEventListener('keydown', onKeydown)
   load()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
 })
 </script>
 
@@ -420,6 +696,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 .total {
   color: #909399;
@@ -456,10 +733,44 @@ onMounted(async () => {
   color: #909399;
   font-size: 12px;
 }
-.player {
-  width: 240px;
+/* 当前单播放器栏 */
+.player-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: #f0f9ff;
+  border: 1px solid #c6e2ff;
+  border-radius: 8px;
+}
+.pb-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 260px;
+}
+.pb-word {
+  font-weight: 600;
+  color: #303133;
+}
+.pb-sub {
+  font-size: 12px;
+  color: #909399;
+}
+.pb-audio {
+  width: 300px;
   height: 36px;
-  vertical-align: middle;
+}
+.pb-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pb-note {
+  width: 200px;
 }
 .tr-box {
   display: flex;
@@ -483,5 +794,43 @@ onMounted(async () => {
 }
 .tr-empty {
   color: #c0c4cc;
+}
+</style>
+
+<style>
+/* 帮助 popover（非 scoped：popover 挂载到 body） */
+.keys-help .kh-title {
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 8px;
+}
+.keys-help .kh-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #606266;
+}
+.keys-help .kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  border: 1px solid #dcdfe6;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: center;
+  color: #303133;
+}
+.keys-help .kh-tip {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #ebeef5;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.6;
 }
 </style>

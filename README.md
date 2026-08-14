@@ -8,6 +8,8 @@
 - **数据质量治理**（后台完善项 4/5）：词条编辑保存前**查重提示**（仅提示不拦截，方言词同词异音可确认后保存）；词条库 / 发音人管理支持**合并**（把重复词条/多身份发音人并为一个，录音/领取/任务引用按状态保留策略迁移去重，淘汰者连带清理存储文件，词条合并且自动处理任务条目冲突）；看板补**录音趋势**与**词条采集难度**两个时间/质量维度。
 - **后台完善项 6/7**（管理安全）：**操作审计日志** —— 关键写操作（任务发布/关闭/删除、审核通过/驳回/批量/重置/删除、删除/合并发音人、删除/合并词条、管理员增删改、删除团队码、解绑领取、词表导入）原子落库 `admin_operation_logs`（谁/何时/改了什么/来源 IP），超管可见「审计日志」页（`/audit-logs`，按操作/管理员/时间区间/关键词筛选分页）；**管理员登录安全** —— 在原有失败锁定（账号 5 次/15 分 + IP 20 次/15 分，成功清零）之上新增**登录速率节流**（每 IP 每 5 分钟最多 30 次尝试，无论成败，进一步压暴力破解）。
 - **后台完善项 8**（数据备份）：服务器每日 03:17 cron 自动备份（`backend/scripts/backup.sh`）—— `pg_dump` 全库（自定义格式自带压缩）+ 媒体文件（录音/头像）+ `.env` 配置快照，保留 14 天，落盘 `/data/dialect/backups`；备份可还原性已通过「灌临时库对比表数据」验证，还原步骤见 `docs/backup.md`（COS 启用后补云端异地副本）。
+- **后台完善项 9**（前端大列表 + 审核快捷键）：词条库 / 发音人管理主列表改 **`el-table-v2` 虚拟渲染**（页大小扩到 500，千级词条滚动流畅）；录音审核页升级为**单播放器 + 快捷键工作台**——点击任意行「试听」统一用底部单个播放器播放，**快捷键**（`空格`播放/暂停、`←/→`或`P/N`上一单/下一单、`A`通过、`R`驳回、`T`转写、`G`切换审后自动播放下一条、`Esc`停止），通过/驳回走**免确认快路径**并自动推进到下一行，底部栏输入驳回原因；批量/重置/删除仍带确认框。
+- **后台完善项 10**（CI/CD + 健康监控）：**CI**（`.github/workflows/ci.yml`，推 master / PR 自动跑）用一次性 postgres 服务库跑 16 脚本全量回归 + 前端 `npm run build`；**手动部署**（`.github/workflows/deploy.yml`，`workflow_dispatch` 按钮）在 runner 上构建 dist → rsync 后端+前端到服务器 → 迁移脚本 → 重启 → 探活，替代手动 scp + systemctl（需先在仓库 Secrets 配 `DEPLOY_SSH_KEY`/`DEPLOY_HOST`/`DEPLOY_USER`）。**健康监控**：`/api/health` 增加 DB 探测（DB 挂返回 503+`db:false`，DB 连接 5s 快速失败防挂死）；服务器 systemd timer 每分钟跑 `backend/scripts/monitor.sh` 探活并**自动重启自愈**（连续失败 ≥3 次停止自愈留告警日志）；UptimeRobot 外部探活告警指引见 `docs/health-monitoring.md`。
 
 ## 目录
 
@@ -325,4 +327,5 @@ python -c "import wave;w=wave.open('out.wav');print(w.getframerate(),w.getnchann
 - `docs/deploy-guide.md` — 首次上线部署指南（建资源/域名/COS/systemd/Nginx）
 - `docs/update-workflow.md` — **日常更新流程**（本地改完 → 同步后端/前端/小程序到线上，部署后每次改代码照着走）
 - `docs/backup.md` — **数据备份与还原**（每日自动备份范围、还原步骤、注意限制）
+- `docs/health-monitoring.md` — **健康监控**（health 端点 / 服务器自愈 / UptimeRobot 外部探活 / 备份异地副本建议）
 - `docs/launch-check.md` — 小程序上线前真机手动验证清单

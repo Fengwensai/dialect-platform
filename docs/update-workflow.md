@@ -55,6 +55,8 @@ git commit -m "feat/fix: 本次改动说明"
 git push origin master
 ```
 
+> 推 master 后 **GitHub Actions 自动跑 CI**（`ci.yml`）：后端 16 脚本全量回归（一次性 postgres 库，不碰真实数据）+ 前端 `npm run build`。到仓库 **Actions** 页看是否全绿，红了先修再部署。
+
 **提交前必查**（`.gitignore` 已封死，别手滑放行）：
 
 ```bash
@@ -65,7 +67,24 @@ git status --short | grep -iE '\.env$|deploy-bundle|\.log$|media/|\.tar\.gz$|sec
 
 ## 3. 同步后端到服务器（☑ 后端有改动必做）
 
-### 方式 A：服务器作为 git 仓库（推荐，改动只传 diff）
+### 方式 C：GitHub Actions Deploy 按钮（**推荐**，替代手动 scp + systemctl）
+
+推完 master 后，仓库 **Actions → Deploy → Run workflow** 一键部署：
+在 runner 上构建前端 dist → rsync 后端（排除 `.env`/`.venv`/`media`）+ 前端 dist 到服务器 → `pip install` → 跑 `init_db.py` + 输入框指定的迁移脚本 → `systemctl restart dialect-api` → 探活 `/api/health` 就绪。
+
+**首次使用前配 3 个 GitHub Secrets**（仓库 Settings → Secrets and variables → Actions → New repository secret）：
+
+| Secret | 值 |
+|---|---|
+| `DEPLOY_SSH_KEY` | 本机 `~/.ssh/id_ed25519` 的**内容**（能免密登录服务器 root 的那把） |
+| `DEPLOY_HOST` | `182.92.9.204` |
+| `DEPLOY_USER` | `root` |
+
+**Run workflow 时**：若本次新增了迁移脚本，在 `migrations` 输入框填空格分隔的名字（如 `migrate_task_claims migrate_word_status`，可带可不带 `.py`）；没有就不填。
+
+> 回退到手动 rsync（Actions 抽风/服务器想就地操作用）：见下方方式 B。
+
+### 方式 A：服务器作为 git 仓库（备用，改动只传 diff）
 
 **一次性配置**（目前服务器是打包部署，还没有 .git；先做这一次）：
 
@@ -144,8 +163,9 @@ node sync.js upload 1.0.1 "本次改动说明"          # 一键上传开发版�
 
 ## 6. 一键检查清单（每次发布前过一遍）
 
-- [ ] 后端改动 → 服务器 `git pull` + 迁移脚本 + `systemctl restart dialect-api` 了吗
-- [ ] 管理后台改动 → `npm run build` + 上传 dist 了吗（5173 跑通 ≠ 线上生效）
+- [ ] GitHub Actions **CI** 全绿了吗（16 脚本回归 + 前端 build，红了先修再部署）
+- [ ] 后端改动 → 用 **Actions Deploy 按钮**（或手动 `git pull`/rsync）+ 迁移脚本 + `systemctl restart dialect-api` 了吗
+- [ ] 管理后台改动 → Deploy 按钮已同步 dist（或手动 `npm run build` + 上传 dist；5173 跑通 ≠ 线上生效）
 - [ ] 小程序改动 → 开发者工具上传 + 提审了吗
 - [ ] 数据库结构变更 → 迁移脚本写了吗、`docs/schema.sql` 更新了吗
 - [ ] 新增依赖 → 服务器 `pip install -r requirements.txt` 了吗

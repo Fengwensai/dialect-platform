@@ -126,3 +126,20 @@
 - [ ] **审核前建演示任务**（审核员是全新用户、无团队码，否则任务列表为空录不了音）：后台「任务分配」勾选「演示任务」→ 选 2~3 词条 → 创建并发布；提交审核时备注写明体验步骤。审核通过后跑 `scripts/cleanup_demo_recordings.py [--hard]` 清理（详见 deploy-guide.md §6.0）。本地已用 `scripts/verify_demo_task.py` 端到端验证 11/11：未绑定可见可录、绑定后不可见且 403、真实任务仍按属地隔离
 - [ ] 真机预览/体验版回归一遍上面 3-7 节
 - [x] **每日数据备份已上线**：`backend/scripts/backup.sh` + cron 每日 03:17（`/etc/cron.d/dialect-backup`）→ `/data/dialect/backups`（PG 全库 + 媒体 + `.env` 快照，保留 14 天）；已手动跑 + 灌临时库还原验证一致；后续每次改服务器配置记得复查 `tail -5 /var/log/dialect-backup.log`，详见 `docs/backup.md`
+
+## 9. 后台体验 + 工程化回归（上线后持续）
+
+**前端性能（后台完善项 9）**
+- [ ] 词条库 / 发音人管理：页大小切到 **500**，千级词条滚动流畅不卡（`el-table-v2` 虚拟渲染）；列、筛选、编辑/合并/删除操作正常
+- [ ] 录音审核页：点任意行「试听」→ 底部单播放器播放；`空格`播放/暂停、`←/→`（或 `P/N`）上一单/下一单、`A` 通过、`R` 驳回、`T` 转写、`G` 切换自动播放下一条、`Esc` 停止；通过/驳回**免确认**并自动推进到下一行；底部栏输入驳回原因生效
+- [ ] 批量通过/驳回、重置、删除仍带确认框
+
+**CI/CD（后台完善项 10）**
+- [ ] 推 master 后 GitHub Actions **CI** 全绿（16 脚本回归 + 前端 build）
+- [ ] Actions **Deploy** 按钮一键部署成功，探活 `/api/health` 返回 200 + `"db":true`
+- [ ] Deploy 三个 Secrets（`DEPLOY_SSH_KEY`/`DEPLOY_HOST`/`DEPLOY_USER`）已配好
+
+**健康监控（`docs/health-monitoring.md`）**
+- [ ] `curl -i https://api.qlzby.com/api/health` 返回 200 + `"db":true`（DB 挂返回 503 + `"db":false`）
+- [ ] `systemctl status dialect-monitor.timer` 为 active；`tail -5 /var/log/dialect-monitor.log` 无告警
+- [ ] UptimeRobot 监控器 **UP**（5 分钟探 `https://api.qlzby.com/api/health`，变红有邮件）

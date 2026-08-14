@@ -22,46 +22,25 @@
       </div>
     </el-card>
 
-    <!-- 发音人表格 -->
+    <!-- 发音人表格（el-table-v2 虚拟渲染，支持大列表流畅滚动） -->
     <el-card shadow="never">
-      <el-table :data="items" v-loading="loading" border stripe>
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="nickname" label="昵称" width="120" show-overflow-tooltip />
-        <el-table-column prop="device_id" label="设备ID" width="170" show-overflow-tooltip />
-        <el-table-column prop="openid" label="openid" width="170" show-overflow-tooltip />
-        <el-table-column label="属地" width="160">
-          <template #default="{ row }">
-            <template v-if="row.province_code">
-              {{ regionName(row.province_code) }}<template v-if="row.city_code">·{{ regionName(row.city_code) }}</template>
-            </template>
-            <el-tag v-else type="info" size="small">未绑定</el-tag>
+      <!-- el-auto-resizer 提供数值型 width/height，随容器自适应（table-v2 的 width 必须为数字） -->
+      <div style="height: calc(100vh - 300px)">
+        <el-auto-resizer>
+          <template #default="{ height, width }">
+            <el-table-v2
+              v-loading="loading"
+              :columns="columns"
+              :data="items"
+              :width="width"
+              :height="height"
+              row-key="id"
+              border
+              stripe
+            />
           </template>
-        </el-table-column>
-        <el-table-column label="团队码" width="110">
-          <template #default="{ row }">
-            <el-tag v-if="row.team_code" type="warning" effect="plain">{{ row.team_code }}</el-tag>
-            <span v-else class="muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="性别" width="90">
-          <template #default="{ row }">{{ genderText(row.gender) }}</template>
-        </el-table-column>
-        <el-table-column label="年龄段" width="100">
-          <template #default="{ row }">{{ ageText(row.age_bracket) }}</template>
-        </el-table-column>
-        <el-table-column prop="recording_count" label="录音数" width="80" />
-        <el-table-column prop="created_at" label="建档时间" width="170">
-          <template #default="{ row }">{{ row.created_at?.slice(0, 16) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="openDetail(row)">明细</el-button>
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="warning" @click="openMerge(row)">合并</el-button>
-            <el-button link type="danger" @click="removeSpeaker(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+        </el-auto-resizer>
+      </div>
 
       <el-pagination
         class="pager"
@@ -70,7 +49,7 @@
         :total="total"
         :page-size="pageSize"
         :current-page="page"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="[20, 50, 100, 200, 500]"
         @current-change="(p) => { page = p; load() }"
         @size-change="(s) => { pageSize = s; page = 1; load() }"
       />
@@ -299,8 +278,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, h, onMounted, reactive, ref } from 'vue'
+import { ElButton, ElMessage, ElMessageBox, ElTag } from 'element-plus'
 import { Search, RefreshLeft, Download } from '@element-plus/icons-vue'
 import request from '../api/request'
 import { useAuthStore } from '../stores/auth'
@@ -404,6 +383,65 @@ function fmtTotalDur(ms) {
   if (m) return `${m}分${sec}秒`
   return `${sec}秒`
 }
+
+// el-table-v2 列配置（cellRenderer 返回 VNode，渲染自定义单元格）
+// 注意：cellRenderer 收到的 props 是 { rowData, rowIndex, ... }（无 row），
+// 自定义单元格一律从 rowData 取字段。
+const columns = computed(() => [
+  { key: 'id', dataKey: 'id', title: 'ID', width: 60 },
+  { key: 'nickname', dataKey: 'nickname', title: '昵称', width: 120, showOverflowTooltip: true },
+  { key: 'device_id', dataKey: 'device_id', title: '设备ID', width: 170, showOverflowTooltip: true },
+  { key: 'openid', dataKey: 'openid', title: 'openid', width: 170, showOverflowTooltip: true },
+  {
+    key: 'region',
+    title: '属地',
+    width: 160,
+    cellRenderer: ({ rowData }) => {
+      if (!rowData.province_code) return h(ElTag, { type: 'info', size: 'small' }, () => '未绑定')
+      const parts = [regionName(rowData.province_code)]
+      if (rowData.city_code) parts.push(regionName(rowData.city_code))
+      return parts.join('·')
+    }
+  },
+  {
+    key: 'team_code',
+    title: '团队码',
+    width: 110,
+    cellRenderer: ({ rowData }) => (rowData.team_code ? h(ElTag, { type: 'warning', effect: 'plain', size: 'small' }, () => rowData.team_code) : '-')
+  },
+  {
+    key: 'gender',
+    title: '性别',
+    width: 90,
+    cellRenderer: ({ rowData }) => genderText(rowData.gender)
+  },
+  {
+    key: 'age_bracket',
+    title: '年龄段',
+    width: 100,
+    cellRenderer: ({ rowData }) => ageText(rowData.age_bracket)
+  },
+  { key: 'recording_count', dataKey: 'recording_count', title: '录音数', width: 80 },
+  {
+    key: 'created_at',
+    title: '建档时间',
+    width: 150,
+    cellRenderer: ({ rowData }) => rowData.created_at?.slice(0, 16) || '-'
+  },
+  {
+    key: 'actions',
+    title: '操作',
+    width: 260,
+    fixed: 'right',
+    cellRenderer: ({ rowData }) =>
+      h('div', { class: 'actions-cell' }, [
+        h(ElButton, { link: true, type: 'primary', onClick: () => openDetail(rowData) }, () => '明细'),
+        h(ElButton, { link: true, type: 'primary', onClick: () => openEdit(rowData) }, () => '编辑'),
+        h(ElButton, { link: true, type: 'warning', onClick: () => openMerge(rowData) }, () => '合并'),
+        h(ElButton, { link: true, type: 'danger', onClick: () => removeSpeaker(rowData) }, () => '删除')
+      ])
+  }
+])
 
 async function load() {
   loading.value = true
@@ -654,6 +692,11 @@ onMounted(async () => {
 .pager {
   margin-top: 14px;
   justify-content: flex-end;
+}
+.actions-cell {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 .detail-head {
   display: flex;

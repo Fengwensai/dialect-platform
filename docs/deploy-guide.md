@@ -220,6 +220,14 @@ server {
 
 ## 5. 部署后自测（☑ 上线前必须）
 
+### 5.0 就绪探活（统一用健康检查端点）
+
+```bash
+curl -i http://127.0.0.1:8000/api/health     # 期望 200 + {"status":"ok","db":true}
+curl -i https://api.qlzby.com/api/health     # 公网反代下同样 200（DB 挂时返回 503+db:false）
+```
+该端点每次探测 DB 连通性（`SELECT 1`），DB 不可达 5s 内返回 503 —— 也是服务器自愈监控与 UptimeRobot 的判断依据，详见 `docs/health-monitoring.md`。
+
 ### 5.1 后端回归（服务器上跑）
 按固定顺序（test_api 会清业务表，放最前）：
 ```bash

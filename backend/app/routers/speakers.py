@@ -160,7 +160,7 @@ def list_speakers(
     gender: str | None = None,
     age_bracket: str | None = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=200),
+    page_size: int = Query(20, ge=1, le=1000),
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):

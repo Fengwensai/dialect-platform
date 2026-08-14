@@ -1,0 +1,107 @@
+name: CI
+
+# 推 master 或开 PR 时自动跑：后端 16 脚本回归（一次性 postgres 库）+ 前端构建。
+# 用一次性库，不影响任何真实数据；微信/COS 凭据留空走开发兜底（fail-open）。
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  backend:
+    name: 后端回归
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: 安装依赖
+        working-directory: backend
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt
+
+      - name: 写 CI 配置（一次性库，微信/COS 留空走兜底）
+        working-directory: backend
+        run: |
+          cat > .env <<'EOF'
+          DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+          JWT_SECRET=ci-only-test-secret
+          ADMIN_INIT_PASSWORD=admin123
+          WECHAT_APPID=
+          WECHAT_SECRET=
+          MEDIA_PUBLIC_BASE=
+          COS_SECRET_ID=
+          COS_SECRET_KEY=
+          COS_REGION=
+          COS_BUCKET=
+          EOF
+
+      - name: 初始化数据库（建表 + 种子，幂等）
+        working-directory: backend
+        run: .venv/bin/python scripts/init_db.py
+
+      - name: 启动服务并等待就绪
+        working-directory: backend
+        run: |
+          .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1; then echo "服务就绪"; break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8000/api/health
+
+      - name: 回归脚本（16 个，固定顺序；test_api 清业务表放最前）
+        working-directory: backend
+        run: |
+          set -e
+          for s in test_api verify_agreements verify_cos_mode verify_dashboard verify_demo_task \
+                   verify_mp_full_flow verify_rate_limit verify_region_isolation verify_review_batch \
+                   verify_review_reset_delete verify_speaker_merge verify_task_claims \
+                   verify_task_team_code verify_wechat_callback verify_word_merge \
+                   verify_audit_log; do
+            echo "===== $s ====="
+            .venv/bin/python scripts/$s.py || { echo "FAIL: $s"; exit 1; }
+          done
+          echo "全部 16 个回归脚本通过"
+
+  frontend:
+    name: 前端构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        working-directory: frontend
+        run: npm ci
+
+      - name: 构建
+        working-directory: frontend
+        run: npm run build

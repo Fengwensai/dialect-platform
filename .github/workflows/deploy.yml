@@ -1,0 +1,106 @@
+name: Deploy
+
+# 手动触发的生产部署（GitHub Actions → 构建 dist → rsync 后端+前端 → 迁移 → 重启 → 探活）。
+# 替代「手动 scp + systemctl」。首次使用前需在仓库 Secrets 配置：
+#   DEPLOY_SSH_KEY  = 本机 ~/.ssh/id_ed25519 内容（可用 root 免密登录 182.92.9.204）
+#   DEPLOY_HOST     = 182.92.9.204
+#   DEPLOY_USER     = root
+# 密钥仅在你点击「Run workflow」时才被使用。
+
+on:
+  workflow_dispatch:
+    inputs:
+      migrations:
+        description: '本次要跑的迁移脚本，空格分隔（如 migrate_task_claims migrate_word_status）'
+        required: false
+        default: ''
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: 部署到生产
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 构建前端（runner 上出 dist）
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: 配置 SSH 密钥
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: 服务器装 rsync（如缺）
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+            'command -v rsync >/dev/null 2>&1 || (apt-get update -y && apt-get install -y rsync)'
+
+      - name: 同步后端（排除 .env/.venv/media/日志）
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          rsync -az --delete \
+            --exclude '.venv' --exclude '.env' --exclude 'media' \
+            --exclude '__pycache__' --exclude '*.log' --exclude '_*.txt' \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            backend/ "$DEPLOY_USER@$DEPLOY_HOST":/opt/dialect/backend/
+
+      - name: 同步前端 dist
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          rsync -az --delete -e "ssh -i ~/.ssh/deploy_key" \
+            frontend/dist/ "$DEPLOY_USER@$DEPLOY_HOST":/opt/dialect/frontend/dist/
+
+      - name: 安装依赖 + 迁移 + 重启 + 探活
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          MIGRATIONS: ${{ inputs.migrations }}
+        run: |
+          cat > /tmp/deploy-remote.sh <<'EOS'
+          set -e
+          cd /opt/dialect/backend
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/python scripts/init_db.py
+          __MIGRATIONS__
+          systemctl restart dialect-api
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1; then echo "服务就绪"; break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8000/api/health
+          EOS
+          mig=""
+          for m in $MIGRATIONS; do
+            mig="$mig\n.venv/bin/python scripts/${m%.py}.py"
+          done
+          if [ -n "$mig" ]; then
+            sed -i "s|__MIGRATIONS__|$mig|g" /tmp/deploy-remote.sh
+          else
+            sed -i "/__MIGRATIONS__/d" /tmp/deploy-remote.sh
+          fi
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' < /tmp/deploy-remote.sh

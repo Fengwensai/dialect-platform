@@ -23,43 +23,25 @@
       </div>
     </el-card>
 
-    <!-- 词条表格 -->
+    <!-- 词条表格（el-table-v2 虚拟渲染，支持大列表流畅滚动） -->
     <el-card shadow="never">
-      <el-table :data="items" v-loading="loading" border stripe>
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="code" label="编号" width="100" show-overflow-tooltip />
-        <el-table-column prop="dialect_point" label="方言点" width="150" show-overflow-tooltip />
-        <el-table-column prop="content" label="词条内容" min-width="130" show-overflow-tooltip />
-        <el-table-column prop="example_sentence" label="例句" min-width="170" show-overflow-tooltip />
-        <el-table-column prop="pronunciation_hint" label="发音提示" width="110" show-overflow-tooltip />
-        <el-table-column label="行政区划" width="200">
-          <template #default="{ row }">
-            <span v-if="row.province_code">{{ regionName(row.province_code) }}<template v-if="row.city_code">-{{ regionName(row.city_code) }}</template><template v-if="row.district_code">-{{ regionName(row.district_code) }}</template></span>
-            <el-tag v-else type="warning" size="small">未匹配</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="96">
-          <template #default="{ row }">
-            <el-switch
-              :model-value="row.status === 'active'"
-              @change="(val) => toggleStatus(row, val)"
-              active-text="启用"
-              inactive-text="禁用"
-              inline-prompt
+      <!-- el-auto-resizer 提供数值型 width/height，随容器自适应（table-v2 的 width 必须为数字） -->
+      <div style="height: calc(100vh - 300px)">
+        <el-auto-resizer>
+          <template #default="{ height, width }">
+            <el-table-v2
+              v-loading="loading"
+              :columns="columns"
+              :data="items"
+              :width="width"
+              :height="height"
+              row-key="id"
+              border
+              stripe
             />
           </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="导入时间" width="170">
-          <template #default="{ row }">{{ row.created_at?.slice(0, 16) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="warning" @click="openMerge(row)">合并</el-button>
-            <el-button link type="danger" @click="remove(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+        </el-auto-resizer>
+      </div>
 
       <el-pagination
         class="pager"
@@ -68,7 +50,7 @@
         :total="total"
         :page-size="pageSize"
         :current-page="page"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="[20, 50, 100, 200, 500]"
         @current-change="(p) => { page = p; load() }"
         @size-change="(s) => { pageSize = s; page = 1; load() }"
       />
@@ -141,8 +123,8 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, h, onMounted, reactive, ref } from 'vue'
+import { ElButton, ElMessage, ElMessageBox, ElSwitch, ElTag } from 'element-plus'
 import { Search, RefreshLeft } from '@element-plus/icons-vue'
 import request from '../api/request'
 import { useRegionStore } from '../stores/regions'
@@ -173,6 +155,61 @@ const merging = ref(false)
 function regionName(code) {
   return regionStore.nameOf(code)
 }
+
+// el-table-v2 列配置（cellRenderer 返回 VNode，渲染自定义单元格）
+// 注意：cellRenderer 收到的 props 是 { rowData, rowIndex, ... }（无 row），
+// 自定义单元格一律从 rowData 取字段。
+const columns = computed(() => [
+  { key: 'id', dataKey: 'id', title: 'ID', width: 60 },
+  { key: 'code', dataKey: 'code', title: '编号', width: 100, showOverflowTooltip: true },
+  { key: 'dialect_point', dataKey: 'dialect_point', title: '方言点', width: 150, showOverflowTooltip: true },
+  { key: 'content', dataKey: 'content', title: '词条内容', width: 160, showOverflowTooltip: true },
+  { key: 'example_sentence', dataKey: 'example_sentence', title: '例句', width: 180, showOverflowTooltip: true },
+  { key: 'pronunciation_hint', dataKey: 'pronunciation_hint', title: '发音提示', width: 110, showOverflowTooltip: true },
+  {
+    key: 'region',
+    title: '行政区划',
+    width: 200,
+    cellRenderer: ({ rowData }) => {
+      if (!rowData.province_code) return h(ElTag, { type: 'warning', size: 'small' }, () => '未匹配')
+      const parts = [regionName(rowData.province_code)]
+      if (rowData.city_code) parts.push(regionName(rowData.city_code))
+      if (rowData.district_code) parts.push(regionName(rowData.district_code))
+      return parts.join('-')
+    }
+  },
+  {
+    key: 'status',
+    title: '状态',
+    width: 96,
+    cellRenderer: ({ rowData }) =>
+      h(ElSwitch, {
+        modelValue: rowData.status === 'active',
+        activeText: '启用',
+        inactiveText: '禁用',
+        inlinePrompt: true,
+        onChange: (val) => toggleStatus(rowData, val)
+      })
+  },
+  {
+    key: 'created_at',
+    title: '导入时间',
+    width: 150,
+    cellRenderer: ({ rowData }) => rowData.created_at?.slice(0, 16) || '-'
+  },
+  {
+    key: 'actions',
+    title: '操作',
+    width: 200,
+    fixed: 'right',
+    cellRenderer: ({ rowData }) =>
+      h('div', { class: 'actions-cell' }, [
+        h(ElButton, { link: true, type: 'primary', onClick: () => openEdit(rowData) }, () => '编辑'),
+        h(ElButton, { link: true, type: 'warning', onClick: () => openMerge(rowData) }, () => '合并'),
+        h(ElButton, { link: true, type: 'danger', onClick: () => remove(rowData) }, () => '删除')
+      ])
+  }
+])
 
 function regionParams() {
   const [p, c, d] = filterRegion.value || []
@@ -343,5 +380,10 @@ onMounted(async () => {
   color: #606266;
   font-size: 13px;
   line-height: 1.6;
+}
+.actions-cell {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 </style>
