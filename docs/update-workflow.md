@@ -35,7 +35,7 @@ for s in test_api verify_agreements verify_cos_mode verify_dashboard verify_demo
          verify_mp_full_flow verify_rate_limit verify_region_isolation verify_review_batch \
          verify_review_reset_delete verify_speaker_merge verify_task_claims \
          verify_task_team_code verify_wechat_callback verify_word_merge \
-         verify_audit_log; do
+         verify_audit_log verify_quality_check; do
   ./.venv/Scripts/python.exe scripts/$s.py || echo "FAIL: $s"
 done
 ```

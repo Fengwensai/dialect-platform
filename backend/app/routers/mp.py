@@ -61,6 +61,7 @@ from ..schemas.mp import (
     TeamJoinRequest,
 )
 from ..services import rate_limit, storage
+from ..services.audio_quality import analyze_audio_quality, classify
 from ..services.content_security import check_text, fire_media_check
 from ..services.wechat import code_to_openid
 
@@ -337,6 +338,15 @@ async def upload_recording(
     )
     overwritten = existing is not None
 
+    # 6.5 录音质量预检（纯标准库解析 WAV；非 WAV/解析失败记 unparsed，不影响上传）
+    qc = analyze_audio_quality(content)
+    if qc is None:
+        q_status, q_flags, q_metrics = "unparsed", None, None
+    else:
+        q_status, q_flags = classify(qc)
+        q_metrics = qc
+    q_checked_at = datetime.now(timezone.utc)
+
     # 7. 落盘（key 确定：同一任务/词条/发音人重复上传即覆盖；COS/本地由 storage 统一收口）
     rel_key = f"recordings/{task_id}/{task_id}_{word_id}_{speaker.id}{ext}"
     audio_url = f"/media/{rel_key}"
@@ -354,6 +364,10 @@ async def upload_recording(
         existing.review_note = None
         existing.mandarin_transcript = None  # 新音频替换旧转写，需重填
         existing.dialect_transcript = None
+        existing.quality_status = q_status
+        existing.quality_flags = ",".join(q_flags) if q_flags else None
+        existing.quality_metrics = q_metrics
+        existing.quality_checked_at = q_checked_at
         rec = existing
     else:
         rec = Recording(
@@ -364,6 +378,10 @@ async def upload_recording(
             audio_duration=duration,
             file_size=len(content),
             status="pending",
+            quality_status=q_status,
+            quality_flags=",".join(q_flags) if q_flags else None,
+            quality_metrics=q_metrics,
+            quality_checked_at=q_checked_at,
         )
         db.add(rec)
     db.commit()

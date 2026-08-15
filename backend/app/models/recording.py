@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import JSON, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -30,6 +30,12 @@ class Recording(Base):
     # 内容安全（阶段十）：media_pending / media_passed / media_failed；trace_id 供域名期对账
     content_check_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     media_check_trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 录音质量预检（后台完善 1）：ok / suspect / unparsed；flags 逗号连接（too_short,silent,too_quiet）；
+    # metrics 为 {duration_ms, rms_db, silence_ratio}。unparsed = 非 WAV 或解析失败。仅标记，不拦截。
+    quality_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    quality_flags: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    quality_metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    quality_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

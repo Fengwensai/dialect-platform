@@ -41,6 +41,7 @@ router = APIRouter(prefix="/api/review", tags=["review"])
 
 VALID_STATUS = {"pending", "approved", "rejected"}
 VALID_SORTS = {"pending_first", "created", "duration", "reviewed"}
+VALID_QUALITY = {"ok", "suspect", "unparsed"}
 
 # 发音人画像码 → manifest 中文显示（值域与 mp.py 的 GENDERS/AGE_BRACKETS 保持一致）
 GENDER_LABELS = {"male": "男", "female": "女", "other": "其他"}
@@ -87,6 +88,9 @@ def _enrich(rec: Recording, db: Session) -> ReviewRecordingOut:
         audio_url=storage.play_url(rec.audio_url),  # COS→预签名；本地→相对路径
         audio_duration=rec.audio_duration,
         file_size=rec.file_size,
+        quality_status=rec.quality_status,
+        quality_flags=rec.quality_flags,
+        quality_metrics=rec.quality_metrics,
         mandarin_transcript=rec.mandarin_transcript,
         dialect_transcript=rec.dialect_transcript,
         status=rec.status,
@@ -102,6 +106,7 @@ def _enrich(rec: Recording, db: Session) -> ReviewRecordingOut:
 def list_review_recordings(
     task_id: int | None = None,
     status: str | None = None,
+    quality: str | None = None,
     keyword: str | None = None,
     province_code: str | None = None,
     sort_by: str = "pending_first",
@@ -116,6 +121,10 @@ def list_review_recordings(
     """
     if status is not None and status not in VALID_STATUS:
         raise HTTPException(status_code=422, detail="status 仅支持 pending/approved/rejected")
+    if quality is not None and quality not in VALID_QUALITY:
+        raise HTTPException(
+            status_code=422, detail="quality 仅支持 ok/suspect/unparsed"
+        )
     if sort_by not in VALID_SORTS:
         raise HTTPException(
             status_code=422, detail="sort_by 仅支持 pending_first/created/duration/reviewed"
@@ -128,6 +137,8 @@ def list_review_recordings(
         q = q.filter(Recording.task_id == task_id)
     if status is not None:
         q = q.filter(Recording.status == status)
+    if quality is not None:
+        q = q.filter(Recording.quality_status == quality)
     if province_code:
         q = q.filter(TaskBatch.province_code == province_code)
     if keyword:

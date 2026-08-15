@@ -54,6 +54,10 @@ class ReviewRecordingOut(BaseModel):
     audio_url: str
     audio_duration: int = 0  # 毫秒
     file_size: int = 0
+    # 录音质量预检（后台完善 1）：ok/suspect/unparsed + flags + metrics，旧数据为 None
+    quality_status: str | None = None
+    quality_flags: str | None = None
+    quality_metrics: dict | None = None
     mandarin_transcript: str | None = None
     dialect_transcript: str | None = None
     status: str

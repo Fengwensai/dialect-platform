@@ -1,6 +1,25 @@
 -- 方言采集平台 · 数据库表结构（PostgreSQL 方言）
--- 由 scripts/export_schema.py 反射生成，共 12 张表
+-- 由 scripts/export_schema.py 反射生成，共 13 张表
 -- 仅结构，不含数据。表间为逻辑引用（未声明 FOREIGN KEY），详见 docs/database.md。
+
+
+CREATE TABLE admin_operation_logs (
+	id SERIAL NOT NULL, 
+	admin_id INTEGER, 
+	admin_name VARCHAR(64) NOT NULL, 
+	action VARCHAR(32) NOT NULL, 
+	target_type VARCHAR(32) NOT NULL, 
+	target_id VARCHAR(64), 
+	summary VARCHAR(512) NOT NULL, 
+	detail JSON NOT NULL, 
+	ip VARCHAR(64) NOT NULL, 
+	created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
+	CONSTRAINT admin_operation_logs_pkey PRIMARY KEY (id)
+)
+
+;
+CREATE INDEX ix_admin_operation_logs_action ON admin_operation_logs (action);
+CREATE INDEX ix_admin_operation_logs_created_at ON admin_operation_logs (created_at);
 
 
 CREATE TABLE admin_users (
@@ -67,6 +86,10 @@ CREATE TABLE recordings (
 	dialect_transcript VARCHAR(1000), 
 	content_check_status VARCHAR(20), 
 	media_check_trace_id VARCHAR(64), 
+	quality_status VARCHAR(20), 
+	quality_flags VARCHAR(100), 
+	quality_metrics JSON, 
+	quality_checked_at TIMESTAMP WITH TIME ZONE, 
 	CONSTRAINT recordings_pkey PRIMARY KEY (id)
 )
 
@@ -226,22 +249,3 @@ CREATE INDEX ix_word_library_dialect_point ON word_library (dialect_point);
 CREATE INDEX ix_word_library_district_code ON word_library (district_code);
 CREATE INDEX ix_word_library_province_code ON word_library (province_code);
 CREATE INDEX ix_word_library_status ON word_library (status);
-
-
-CREATE TABLE admin_operation_logs (
-	id SERIAL NOT NULL,
-	admin_id INTEGER,
-	admin_name VARCHAR(64) DEFAULT ''::character varying,
-	action VARCHAR(32) NOT NULL,
-	target_type VARCHAR(32) DEFAULT ''::character varying,
-	target_id VARCHAR(64),
-	summary VARCHAR(512) DEFAULT ''::character varying,
-	detail JSON DEFAULT '[]'::json,
-	ip VARCHAR(64) DEFAULT ''::character varying,
-	created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-	CONSTRAINT admin_operation_logs_pkey PRIMARY KEY (id)
-)
-
-;
-CREATE INDEX ix_admin_operation_logs_action ON admin_operation_logs (action);
-CREATE INDEX ix_admin_operation_logs_created_at ON admin_operation_logs (created_at);

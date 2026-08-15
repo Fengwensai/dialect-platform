@@ -234,7 +234,8 @@ curl -i https://api.qlzby.com/api/health     # 公网反代下同样 200（DB �
 cd /opt/dialect/backend
 for s in test_api verify_agreements verify_region_isolation verify_task_team_code \
          verify_mp_full_flow verify_wechat_callback verify_cos_mode \
-         verify_demo_task verify_rate_limit verify_task_claims; do
+         verify_demo_task verify_rate_limit verify_task_claims \
+         verify_quality_check; do
   .venv/bin/python scripts/$s.py || echo "FAIL: $s"
 done
 ```

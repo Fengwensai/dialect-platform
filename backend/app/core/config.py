@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     # 上传频率：单个发音人 UPLOAD_RATE_LIMIT 次 / UPLOAD_RATE_WINDOW_SECONDS 秒
     UPLOAD_RATE_LIMIT: int = 60
     UPLOAD_RATE_WINDOW_SECONDS: int = 600
+    # —— 录音质量预检阈值（后台完善 1，.env 可覆盖调参）——
+    # 时长低于此毫秒数 → too_short
+    QUALITY_MIN_DURATION_MS: int = 800
+    # 静音帧占比 ≥ 此比例 → silent
+    QUALITY_SILENCE_RATIO: float = 0.9
+    # 整体 RMS 低于此 dBFS → too_quiet
+    QUALITY_MIN_RMS_DB: float = -40.0
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),

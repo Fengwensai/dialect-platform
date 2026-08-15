@@ -17,6 +17,9 @@
           <el-option label="已通过" value="approved" />
           <el-option label="已驳回" value="rejected" />
         </el-select>
+        <el-checkbox v-model="filterQuality" style="margin-right: 4px" @change="page = 1; load()">
+          只看疑似无效
+        </el-checkbox>
         <el-input
           v-model="filterKeyword"
           placeholder="搜索发音人/词条"
@@ -132,6 +135,14 @@
         </el-table-column>
         <el-table-column label="时长" width="80">
           <template #default="{ row }">{{ fmtDuration(row.audio_duration) }}</template>
+        </el-table-column>
+        <el-table-column label="质量" width="100">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.quality_status === 'suspect'" :content="qualityTip(row)" placement="top">
+              <el-tag type="danger" size="small" effect="plain">疑似无效</el-tag>
+            </el-tooltip>
+            <span v-else class="tr-empty">-</span>
+          </template>
         </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
@@ -273,6 +284,23 @@ const statusMeta = {
   rejected: { type: 'danger', label: '已驳回' }
 }
 
+// 录音质量预检旗标中文化（后台完善 1）
+const QUALITY_FLAG_LABELS = {
+  too_short: '录音过短',
+  silent: '静音无声',
+  too_quiet: '音量过低'
+}
+
+function qualityTip(row) {
+  const parts = (row.quality_flags || '')
+    .split(',')
+    .filter(Boolean)
+    .map((f) => QUALITY_FLAG_LABELS[f] || f)
+  const m = row.quality_metrics
+  if (m && m.duration_ms != null) parts.push(`时长 ${(m.duration_ms / 1000).toFixed(1)}s`)
+  return parts.join('、') || '疑似无效'
+}
+
 const loading = ref(false)
 const exporting = ref(false)
 const batchLoading = ref(false)
@@ -282,6 +310,7 @@ const page = ref(1)
 const pageSize = ref(20)
 const filterTaskId = ref(null)
 const filterStatus = ref('pending')
+const filterQuality = ref(false) // 只看疑似无效
 const filterKeyword = ref('')
 const filterProvince = ref('')
 const sortBy = ref('pending_first')
@@ -328,6 +357,7 @@ async function load(onDone) {
     const params = { page: page.value, page_size: pageSize.value }
     if (filterTaskId.value) params.task_id = filterTaskId.value
     if (filterStatus.value) params.status = filterStatus.value
+    if (filterQuality.value) params.quality = 'suspect'
     if (filterKeyword.value) params.keyword = filterKeyword.value
     if (filterProvince.value) params.province_code = filterProvince.value
     if (sortBy.value) params.sort_by = sortBy.value
@@ -345,6 +375,7 @@ async function load(onDone) {
 function reset() {
   filterTaskId.value = null
   filterStatus.value = 'pending'
+  filterQuality.value = false
   filterKeyword.value = ''
   filterProvince.value = ''
   sortBy.value = 'pending_first'
