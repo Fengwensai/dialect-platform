@@ -9,6 +9,10 @@
 - item 冲突：(task_batch, keep) 已存在则删 remove 的
 - keep==remove → 400；词条不存在 → 404；省管越省 → 403；未登录 → 401
 - 合并后 remove 词条消失、w2 引用清零
+- 词条批量操作（后台完善 6）：batch-status 语义（省管只处理本省、禁用/再禁用 400/启用
+  processed+skipped、重复 id 去重、空 400 / 非法 422 / 缺失 404 / 未登录 401）、
+  batch-delete（删干净词 + 引用清孤儿 0、有录音全跳过 400、超上限 422）、单条删除有录音 400 加固、
+  批量操作审计留痕
 
 用法: ./.venv/Scripts/python.exe scripts/verify_word_merge.py
 """
@@ -26,6 +30,7 @@ from app.core.security import create_access_token, hash_password  # noqa: E402
 from app.db import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.admin import AdminUser  # noqa: E402
+from app.models.audit_log import AdminOperationLog  # noqa: E402
 from app.models.recording import Recording  # noqa: E402
 from app.models.speaker import Speaker  # noqa: E402
 from app.models.task import TaskBatch, TaskBatchItem  # noqa: E402
@@ -214,6 +219,117 @@ def main():
                    json={"keep_word_id": hb_w1.id, "remove_word_id": hb_w2.id})
         check("merge 已删词条 → 404", r.status_code == 404, str(r.status_code))
 
+        # ================= 词条批量操作（后台完善 6）=================
+        # 词条：3 个干净（可启停/可删）+ 1 个有录音（删除被拦）+ 1 个省管专用（隔离，不参与后续）
+        bt_w1 = WordLibrary(code="VFY-WM-BT1", dialect_point="测试点", content="批量词一",
+                            example_sentence="测试。", province_code=HB_PROV, status="active")
+        bt_w2 = WordLibrary(code="VFY-WM-BT2", dialect_point="测试点", content="批量词二",
+                            example_sentence="测试。", province_code=HB_PROV, status="active")
+        bt_w3 = WordLibrary(code="VFY-WM-BT3", dialect_point="测试点", content="批量词三",
+                            example_sentence="测试。", province_code=HB_PROV, status="active")
+        bt_rec_w = WordLibrary(code="VFY-WM-BT4", dialect_point="测试点", content="批量有录音词",
+                               example_sentence="测试。", province_code=HB_PROV, status="active")
+        bt_prov = WordLibrary(code="VFY-WM-BT5", dialect_point="测试点", content="批量省管专用词",
+                              example_sentence="测试。", province_code=HB_PROV, status="active")
+        db.add_all([bt_w1, bt_w2, bt_w3, bt_rec_w, bt_prov])
+        db.commit()
+        rec(sp1, task_a, bt_rec_w, "pending", "BT")  # 造一条录音，让 bt_rec_w 有录音
+        db.commit()
+
+        hb_admin = AdminUser(username="verify_wm_hb", password_hash=hash_password("admin123"),
+                             name="词条批量省管", role="province_admin", province_code=HB_PROV)
+        db.add(hb_admin)
+        db.commit()
+        HB = {"Authorization": "Bearer " + create_access_token({"admin_id": hb_admin.id})}
+        last_before = db.query(AdminOperationLog.id).order_by(AdminOperationLog.id.desc()).first()
+        before_log_id = last_before[0] if last_before else 0
+
+        # —— 省管批量：只处理河北，跳过北京（bt_prov 隔离使用，不干扰后续状态）——
+        r = c.post("/api/words/batch-status", headers=HB,
+                   json={"word_ids": [bt_prov.id, bj_w1.id], "status": "disabled"})
+        j = r.json()
+        check("批量禁用：省管只处理本省（河北 processed=1，北京 skipped=1）",
+              r.status_code == 200 and j["processed"] == 1 and j["skipped"] == 1, r.text[:100])
+        check("批量禁用：被跳过的北京词仍为 active",
+              db.query(WordLibrary.status).filter(WordLibrary.id == bj_w1.id).scalar() == "active")
+
+        # —— 批量启用/禁用语义 ——
+        r = c.post("/api/words/batch-status", headers=SUPER,
+                   json={"word_ids": [bt_w1.id, bt_w2.id, bt_w3.id], "status": "disabled"})
+        j = r.json()
+        check("批量禁用 3 词 → processed=3 / skipped=0",
+              r.status_code == 200 and j["processed"] == 3 and j["skipped"] == 0, r.text[:100])
+        r = c.post("/api/words/batch-status", headers=SUPER,
+                   json={"word_ids": [bt_w1.id, bt_w2.id, bt_w3.id], "status": "disabled"})
+        check("批量禁用：再禁用一次 → 全已禁用 → 400", r.status_code == 400, str(r.status_code))
+        r = c.post("/api/words/batch-status", headers=SUPER,
+                   json={"word_ids": [bt_w1.id, bt_w2.id], "status": "active"})
+        j = r.json()
+        check("批量启用 w1/w2 → processed=2 / skipped=0",
+              r.status_code == 200 and j["processed"] == 2 and j["skipped"] == 0, r.text[:100])
+        r = c.post("/api/words/batch-status", headers=SUPER,
+                   json={"word_ids": [bt_w1.id, bt_w2.id, bt_w3.id], "status": "active"})
+        j = r.json()
+        check("批量启用 w1/w2/w3 → w1/w2 已启用跳过、只启 w3 → processed=1 / skipped=2",
+              r.status_code == 200 and j["processed"] == 1 and j["skipped"] == 2, r.text[:100])
+        r = c.post("/api/words/batch-status", headers=SUPER,
+                   json={"word_ids": [bt_w1.id, bt_w1.id, bt_w2.id, bt_w2.id], "status": "disabled"})
+        j = r.json()
+        check("重复 id 去重 → 只处理不重复的（processed=2 / skipped=0）",
+              r.status_code == 200 and j["processed"] == 2 and j["skipped"] == 0, r.text[:100])
+
+        # —— 非法输入 ——
+        r = c.post("/api/words/batch-status", headers=SUPER,
+                   json={"word_ids": [], "status": "active"})
+        check("批量禁用：空列表 → 400", r.status_code == 400, str(r.status_code))
+        r = c.post("/api/words/batch-status", headers=SUPER,
+                   json={"word_ids": [bt_w1.id], "status": "banana"})
+        check("批量禁用：非法 status → 422", r.status_code == 422, str(r.status_code))
+        r = c.post("/api/words/batch-status", headers=SUPER,
+                   json={"word_ids": [999999], "status": "active"})
+        check("批量禁用：词条不存在 → 404", r.status_code == 404, str(r.status_code))
+        r = c.post("/api/words/batch-status", json={"word_ids": [bt_w1.id], "status": "active"})
+        check("批量禁用：未登录 → 401", r.status_code == 401, str(r.status_code))
+
+        # —— 批量删除：跳过有录音的，只删干净的 ——
+        r = c.post("/api/words/batch-delete", headers=SUPER,
+                   json={"word_ids": [bt_w1.id, bt_w2.id, bt_w3.id, bt_rec_w.id]})
+        j = r.json()
+        check("批量删除：删 3 干净 + 跳 1 有录音 → processed=3 / skipped=1",
+              r.status_code == 200 and j["processed"] == 3 and j["skipped"] == 1, r.text[:100])
+        ids_after = {x[0] for x in db.query(WordLibrary.id).filter(
+            WordLibrary.id.in_([bt_w1.id, bt_w2.id, bt_w3.id, bt_rec_w.id])).all()}
+        check("批量删除：3 干净词已删，有录音词仍在", ids_after == {bt_rec_w.id}, f"{ids_after}")
+        orphan_items = db.query(TaskBatchItem.id).filter(
+            TaskBatchItem.word_id.in_([bt_w1.id, bt_w2.id, bt_w3.id])).count()
+        orphan_claims = db.query(TaskClaim.id).filter(
+            TaskClaim.word_id.in_([bt_w1.id, bt_w2.id, bt_w3.id])).count()
+        check("批量删除：干净词的任务/领取引用已清（孤儿 0）",
+              orphan_items == 0 and orphan_claims == 0, f"items={orphan_items} claims={orphan_claims}")
+        r = c.post("/api/words/batch-delete", headers=SUPER, json={"word_ids": [bt_rec_w.id]})
+        check("批量删除：全是有录音 → 全跳过 → 400 且词条仍在",
+              r.status_code == 400 and db.get(WordLibrary, bt_rec_w.id) is not None, r.text[:100])
+        r = c.delete(f"/api/words/{bt_rec_w.id}", headers=SUPER)
+        check("单条删除：有录音词条 → 400 拦截（加固生效）",
+              r.status_code == 400 and "不能删除" in r.json().get("detail", ""), r.text[:100])
+        r = c.post("/api/words/batch-delete", headers=SUPER,
+                   json={"word_ids": list(range(1, 502))})
+        check("批量删除：超过 500 上限 → 422", r.status_code == 422, str(r.status_code))
+        r = c.post("/api/words/batch-delete", headers=SUPER, json={"word_ids": []})
+        check("批量删除：空列表 → 400", r.status_code == 400, str(r.status_code))
+        r = c.post("/api/words/batch-delete", headers=SUPER, json={"word_ids": [999999]})
+        check("批量删除：词条不存在 → 404", r.status_code == 404, str(r.status_code))
+        r = c.post("/api/words/batch-delete", json={"word_ids": [bt_w1.id]})
+        check("批量删除：未登录 → 401", r.status_code == 401, str(r.status_code))
+
+        # —— 审计日志：批量操作留痕（仅本次运行的日志）——
+        batch_actions = {l.action for l in db.query(AdminOperationLog)
+                         .filter(AdminOperationLog.id > before_log_id)
+                         .filter(AdminOperationLog.action.like("%批量%")).all()}
+        check("审计：批量启用/禁用/删除各留痕",
+              {"批量启用词条", "批量禁用词条", "批量删除词条"} <= batch_actions,
+              f"{sorted(batch_actions)}")
+
         cleanup(db)
         check("清理种子数据", True)
     finally:
@@ -242,7 +358,7 @@ def cleanup(db):
         db.query(TaskClaim).filter(TaskClaim.speaker_id == sp.id).delete()
         db.delete(sp)
     db.query(WordLibrary).filter(WordLibrary.code.like("VFY-WM%")).delete()
-    db.query(AdminUser).filter(AdminUser.username == "verify_wm_admin").delete()
+    db.query(AdminUser).filter(AdminUser.username.in_(["verify_wm_admin", "verify_wm_hb"])).delete()
     db.commit()
 
 

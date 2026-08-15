@@ -26,6 +26,14 @@
 
     <!-- 词条表格（el-table-v2 虚拟渲染，支持大列表流畅滚动） -->
     <el-card shadow="never">
+      <!-- 批量操作条（手动 checkbox 列勾选） -->
+      <div v-if="selection.length" class="batch-bar">
+        <span class="batch-tip">已选 <b class="sel-count">{{ selection.length }}</b> 条词条</span>
+        <el-button type="success" size="small" :loading="batchLoading" @click="batchStatus('active')">批量启用</el-button>
+        <el-button type="warning" size="small" :loading="batchLoading" @click="batchStatus('disabled')">批量禁用</el-button>
+        <el-button type="danger" size="small" :loading="batchLoading" @click="batchDelete">批量删除</el-button>
+        <el-button size="small" :disabled="batchLoading" @click="clearSelection">取消选择</el-button>
+      </div>
       <!-- el-auto-resizer 提供数值型 width/height，随容器自适应（table-v2 的 width 必须为数字） -->
       <div style="height: calc(100vh - 300px)">
         <el-auto-resizer>
@@ -125,7 +133,7 @@
 
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { ElButton, ElMessage, ElMessageBox, ElSwitch, ElTag } from 'element-plus'
+import { ElButton, ElCheckbox, ElMessage, ElMessageBox, ElSwitch, ElTag } from 'element-plus'
 import { Download, RefreshLeft, Search } from '@element-plus/icons-vue'
 import request from '../api/request'
 import { useRegionStore } from '../stores/regions'
@@ -155,6 +163,32 @@ const mergeTarget = ref(null)
 const mergeLoading = ref(false)
 const merging = ref(false)
 
+// —— 批量操作（el-table-v2 无内置多选，用手动 checkbox 列）——
+const selection = ref([])
+const batchLoading = ref(false)
+const selectedIds = computed(() => new Set(selection.value))
+const allChecked = computed(
+  () => items.value.length > 0 && selection.value.length === items.value.length
+)
+const someChecked = computed(
+  () => selection.value.length > 0 && selection.value.length < items.value.length
+)
+
+function toggleRow(row, checked) {
+  const s = new Set(selection.value)
+  if (checked) s.add(row.id)
+  else s.delete(row.id)
+  selection.value = [...s]
+}
+
+function toggleAll(checked) {
+  selection.value = checked ? items.value.map((w) => w.id) : []
+}
+
+function clearSelection() {
+  selection.value = []
+}
+
 function regionName(code) {
   return regionStore.nameOf(code)
 }
@@ -163,6 +197,23 @@ function regionName(code) {
 // 注意：cellRenderer 收到的 props 是 { rowData, rowIndex, ... }（无 row），
 // 自定义单元格一律从 rowData 取字段。
 const columns = computed(() => [
+  {
+    key: 'selection',
+    title: '',
+    width: 45,
+    align: 'center',
+    cellRenderer: ({ rowData }) =>
+      h(ElCheckbox, {
+        modelValue: selectedIds.value.has(rowData.id),
+        onChange: (val) => toggleRow(rowData, val)
+      }),
+    headerCellRenderer: () =>
+      h(ElCheckbox, {
+        modelValue: allChecked.value,
+        indeterminate: someChecked.value,
+        onChange: (val) => toggleAll(val)
+      })
+  },
   { key: 'id', dataKey: 'id', title: 'ID', width: 60 },
   { key: 'code', dataKey: 'code', title: '编号', width: 100, showOverflowTooltip: true },
   { key: 'dialect_point', dataKey: 'dialect_point', title: '方言点', width: 150, showOverflowTooltip: true },
@@ -235,6 +286,7 @@ async function load() {
   } finally {
     loading.value = false
   }
+  selection.value = [] // 翻页/刷新后清空勾选（仅当前页多选）
 }
 
 function reset() {
@@ -385,6 +437,39 @@ async function remove(row) {
   load()
 }
 
+/** 批量启用/禁用选中的词条 */
+async function batchStatus(status) {
+  const label = status === 'active' ? '启用' : '禁用'
+  await ElMessageBox.confirm(`确定批量${label}选中的 ${selection.value.length} 个词条吗？`, '批量操作', { type: 'warning' })
+  batchLoading.value = true
+  try {
+    const r = await request.post('/words/batch-status', { word_ids: selection.value, status })
+    ElMessage.success(`已${label} ${r.processed} 条，跳过 ${r.skipped} 条（已处于目标状态或不在本省范围）`)
+    clearSelection()
+    load()
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+/** 批量删除选中的词条：有录音的跳过，不连带删录音 */
+async function batchDelete() {
+  await ElMessageBox.confirm(
+    `确定批量删除选中的 ${selection.value.length} 个词条吗？若其中有词条已有录音将被跳过，不删除；在草稿/已发布任务中的将一并移出任务。`,
+    '批量删除',
+    { type: 'warning' }
+  )
+  batchLoading.value = true
+  try {
+    const r = await request.post('/words/batch-delete', { word_ids: selection.value })
+    ElMessage.success(`已删除 ${r.processed} 条，跳过 ${r.skipped} 条（有录音）`)
+    clearSelection()
+    load()
+  } finally {
+    batchLoading.value = false
+  }
+}
+
 onMounted(async () => {
   await regionStore.ensureLoaded()
   load()
@@ -404,6 +489,24 @@ onMounted(async () => {
 .pager {
   margin-top: 14px;
   justify-content: flex-end;
+}
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #fdf6ec;
+  border: 1px solid #faecd8;
+  border-radius: 6px;
+}
+.batch-tip {
+  font-size: 13px;
+  color: #606266;
+}
+.sel-count {
+  color: #e6a23c;
+  font-weight: 600;
 }
 .merge-tip {
   margin: 0 0 14px;

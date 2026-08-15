@@ -39,3 +39,23 @@ class WordMergeRequest(BaseModel):
 
     keep_word_id: int
     remove_word_id: int
+
+
+class WordBatchStatusRequest(BaseModel):
+    """批量启用/禁用词条。"""
+
+    word_ids: list[int]
+    status: str  # active 启用 / disabled 禁用
+
+
+class WordBatchDeleteRequest(BaseModel):
+    """批量删除词条（有录音的跳过，只删干净的）。"""
+
+    word_ids: list[int]
+
+
+class WordBatchResult(BaseModel):
+    """批量操作结果。skipped = 越省 / 已是目标状态 / 有录音未删除的条数。"""
+
+    processed: int
+    skipped: int

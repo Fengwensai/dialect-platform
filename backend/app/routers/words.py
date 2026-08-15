@@ -12,7 +12,14 @@ from ..models.recording import Recording
 from ..models.task import TaskBatch, TaskBatchItem
 from ..models.task_claim import TaskClaim
 from ..models.word import WordLibrary
-from ..schemas.word import WordMergeRequest, WordOut, WordUpdate
+from ..schemas.word import (
+    WordBatchDeleteRequest,
+    WordBatchResult,
+    WordBatchStatusRequest,
+    WordMergeRequest,
+    WordOut,
+    WordUpdate,
+)
 from ..services import rate_limit, storage
 from ..services.audit import log_admin_action
 from ..services.export import csv_response, recordings_zip_response
@@ -367,6 +374,111 @@ def merge_words(
     }
 
 
+BATCH_ID_LIMIT = 500  # 批量操作上限，对齐词条 page_size 上限的稳妥值
+
+
+def _batch_words(db: Session, admin: AdminUser, word_ids: list[int]) -> list[WordLibrary]:
+    """批量端点的公共前置：去重保序 → 空 400 → 上限 422 → 缺失 404 → 返回按序词条列表。"""
+    ids = list(dict.fromkeys(word_ids))  # 去重保序
+    if not ids:
+        raise HTTPException(status_code=400, detail="未选择任何词条")
+    if len(ids) > BATCH_ID_LIMIT:
+        raise HTTPException(status_code=422, detail=f"一次最多操作 {BATCH_ID_LIMIT} 个词条")
+    words = db.query(WordLibrary).filter(WordLibrary.id.in_(ids)).all()
+    w_map = {w.id: w for w in words}
+    missing = [i for i in ids if i not in w_map]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"词条不存在: {missing}")
+    return [w_map[i] for i in ids]
+
+
+@router.post("/batch-status", response_model=WordBatchResult)
+def batch_update_word_status(
+    body: WordBatchStatusRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """批量启用/禁用词条。
+
+    省管理员自动跳过非本省词条；已是目标状态的跳过。返回实际改动的 processed 与跳过的 skipped。
+    """
+    if body.status not in ("active", "disabled"):
+        raise HTTPException(status_code=422, detail="status 仅支持 active/disabled")
+    words = _batch_words(db, admin, body.word_ids)
+
+    processed = 0
+    for w in words:
+        if admin.role == "province_admin" and w.province_code != admin.province_code:
+            continue  # 越省：跳过
+        if w.status == body.status:
+            continue  # 已是目标状态：跳过
+        w.status = body.status
+        processed += 1
+
+    if processed == 0:
+        raise HTTPException(
+            status_code=400, detail="所选词条均无需操作（已处于目标状态或不在本省范围）"
+        )
+    label = "启用" if body.status == "active" else "禁用"
+    log_admin_action(
+        db,
+        admin,
+        f"批量{label}词条",
+        "word",
+        summary=f"批量{label}词条 {processed} 条（跳过 {len(words) - processed} 条）",
+        detail={"processed": processed, "skipped": len(words) - processed},
+        ip=rate_limit.client_ip(request),
+    )
+    db.commit()
+    return WordBatchResult(processed=processed, skipped=len(words) - processed)
+
+
+@router.post("/batch-delete", response_model=WordBatchResult)
+def batch_delete_words(
+    body: WordBatchDeleteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """批量删除词条：跳过已有录音的（不连带删录音，避免无 FK 下留孤儿行），只删干净的。
+
+    省管理员自动跳过非本省词条；干净词条照单条删除清理 TaskClaim + TaskBatchItem 引用后删除。
+    返回实际删除的 processed 与跳过的 skipped（有录音 / 越省）。
+    """
+    words = _batch_words(db, admin, body.word_ids)
+
+    processed = 0
+    for w in words:
+        if admin.role == "province_admin" and w.province_code != admin.province_code:
+            continue  # 越省：跳过
+        has_rec = (
+            db.query(Recording.id).filter(Recording.word_id == w.id).first() is not None
+        )
+        if has_rec:
+            continue  # 有录音：跳过，不连带删录音
+        db.query(TaskClaim).filter(TaskClaim.word_id == w.id).delete()
+        db.query(TaskBatchItem).filter(TaskBatchItem.word_id == w.id).delete()
+        db.delete(w)
+        processed += 1
+
+    if processed == 0:
+        raise HTTPException(
+            status_code=400, detail="所选词条均无法删除（已有录音或不在本省范围）"
+        )
+    log_admin_action(
+        db,
+        admin,
+        "批量删除词条",
+        "word",
+        summary=f"批量删除词条 {processed} 条（跳过 {len(words) - processed} 条）",
+        detail={"processed": processed, "skipped": len(words) - processed},
+        ip=rate_limit.client_ip(request),
+    )
+    db.commit()
+    return WordBatchResult(processed=processed, skipped=len(words) - processed)
+
+
 @router.patch("/{word_id}", response_model=WordOut)
 def update_word(
     word_id: int,
@@ -410,6 +522,10 @@ def delete_word(
         raise HTTPException(status_code=404, detail="词条不存在")
     if admin.role == "province_admin" and word.province_code != admin.province_code:
         raise HTTPException(status_code=403, detail="无权操作其他省份词条")
+    # 有录音的词条不允许删：Recording 无 FK 引用，硬删会留孤儿行（与批量删除的「跳过有录音的」一致）
+    rec_count = db.query(Recording).filter(Recording.word_id == word_id).count()
+    if rec_count > 0:
+        raise HTTPException(status_code=400, detail=f"该词条已有 {rec_count} 条录音，不能删除")
     # 清理任务包中的引用，避免孤儿数据；领取记录一并清，防止孤儿 claim 永久占池
     db.query(TaskClaim).filter(TaskClaim.word_id == word_id).delete()
     db.query(TaskBatchItem).filter(TaskBatchItem.word_id == word_id).delete()
