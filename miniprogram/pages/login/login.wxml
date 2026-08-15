@@ -52,7 +52,7 @@
     <view class="setup-card">
       <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
         <image class="avatar" wx:if="{{avatarUrl}}" src="{{avatarUrl}}" mode="aspectFill" />
-        <view class="avatar avatar-placeholder" wx:else>点</view>
+        <view class="avatar avatar-placeholder" wx:else>👤</view>
         <view class="avatar-edit">点击选择头像</view>
       </button>
       <input

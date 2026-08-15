@@ -7,9 +7,9 @@
       </view>
     </view>
     <view class="head-sub">
-      已领 {{claim.my_claimed}} / 可领 {{claim.claimable}} · 任务共 {{claim.task_word_total}} 条
+      已领 {{claim.my_claimed}} / 可领 {{claim.claimable}} · 共 {{claim.task_word_total}} 条
     </view>
-    <view class="head-sub" wx:if="{{words.length}}">已录 {{recorded}} / {{total}}，点词条开始录音<block wx:if="{{redoCount}}"> · 需重录 {{redoCount}}</block></view>
+    <view class="head-sub" wx:if="{{words.length}}">已录 {{recorded}}/{{total}}，点词条开始录音<block wx:if="{{redoCount}}"> · 需重录 {{redoCount}}</block></view>
     <view class="head-sub" wx:elif="{{!loading}}">还没领取词条，点右上角「领取」开始</view>
   </view>
 

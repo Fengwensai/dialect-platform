@@ -2,7 +2,7 @@
   <!-- 用户信息卡（头像/姓名/方言点/个人信息 汇总，点击进入编辑页） -->
   <view class="user-card" bindtap="goProfile" hover-class="user-card-hover">
     <image class="avatar" wx:if="{{displayAvatarUrl}}" src="{{displayAvatarUrl}}" mode="aspectFill" />
-    <view class="avatar avatar-placeholder" wx:else>方</view>
+    <view class="avatar avatar-placeholder" wx:else>👤</view>
     <view class="user-info">
       <view class="user-name">{{nickname || '微信用户'}}</view>
       <view class="user-line">所属地区：{{provinceName || '未加入团队'}}</view>

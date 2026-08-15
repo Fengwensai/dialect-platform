@@ -16,7 +16,7 @@
 
   <!-- 领取任务：首页最醒目入口（用 view 避免 button 默认样式限制宽度） -->
   <view class="task-btn" bindtap="goTasks" hover-class="task-btn-hover">
-    <view class="task-icon">📋</view>
+    <view class="task-icon">领</view>
     <view class="task-btn-text">
       <view class="task-btn-title">领取任务</view>
       <view class="task-btn-sub">选择任务与词条，开始乡音录音</view>

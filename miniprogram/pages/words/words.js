@@ -126,7 +126,9 @@ Page({
         '&wordId=' +
         it.word_id +
         '&content=' +
-        encodeURIComponent(it.content)
+        encodeURIComponent(it.content) +
+        '&taskName=' +
+        encodeURIComponent(this.data.taskName || '')
     })
   },
 

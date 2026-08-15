@@ -73,7 +73,7 @@
         {{state === 'idle' ? '待录音' : (state === 'recording' ? '录音中' : '已录制')}}
       </view>
       <view class="timer {{warn ? 'timer-warn' : ''}}">{{display}}</view>
-      <view class="format-tip">PCM 16kHz · 单声道 · 16bit · 最长 60s</view>
+      <view class="format-tip">最长 60 秒</view>
 
       <block wx:if="{{state === 'idle'}}">
         <button class="btn-primary rec-btn" bindtap="start">开始录音</button>

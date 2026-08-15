@@ -6,8 +6,9 @@
  * 回退到队列页/我的页「一键上传」；重录覆盖。
  *
  * 队列项结构：
- * { id, taskId, wordId, content, wavPath, durationMs, createdAt,
+ * { id, taskId, wordId, content, taskName, wavPath, durationMs, createdAt,
  *   status: 'pending'|'uploading'|'done'|'error'|'claimLost', error }
+ * taskName：任务名（旧项可能为空，队列页回退显示 taskId）。
  * claimLost：上传被 403 拒绝（该词条未被领取/已被解绑），需先去任务页领取后再重录。
  */
 const uploader = require('./uploader')

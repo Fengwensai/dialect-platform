@@ -44,7 +44,7 @@
       <view class="item-main">
         <view class="item-content">{{item.content || '（无内容）'}}</view>
         <view class="item-meta">
-          任务 {{item.taskId}} · 词条 {{item.wordId}} · {{item.durationText}}
+          {{item.taskName || '任务 ' + item.taskId}} · {{item.content || '词条 ' + item.wordId}} · {{item.durationText}}
         </view>
         <view class="item-error" wx:if="{{item.error}}">{{item.error}}</view>
       </view>

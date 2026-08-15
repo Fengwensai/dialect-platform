@@ -25,6 +25,7 @@ Page({
     taskIndex: -1,
     wordOptions: [],
     pickClaim: null, // 选中任务的领取统计（空池 CTA 用）
+    taskName: '', // 任务名（保存入队时带给队列页展示，替代内部 ID）
     taskId: '',
     wordId: '',
     content: '',
@@ -47,6 +48,7 @@ Page({
         taskId: String(options.taskId),
         wordId: String(options.wordId || ''),
         content: decodeURIComponent(options.content || ''),
+        taskName: decodeURIComponent(options.taskName || ''),
         pickMode: false
       })
       this.loadWordContext()
@@ -92,7 +94,7 @@ Page({
     const idx = Number(e.currentTarget.dataset.index)
     const task = this.data.taskOptions[idx]
     if (!task) return
-    this.setData({ taskIndex: idx, wordOptions: [], pickClaim: null })
+    this.setData({ taskIndex: idx, wordOptions: [], pickClaim: null, taskName: task.name || '' })
     api
       .request('/api/mp/tasks/' + task.id + '/words')
       .then((data) => {
@@ -150,6 +152,7 @@ Page({
           content: this.data.content || w.content,
           pronunciation_hint: w.pronunciation_hint || '',
           example_sentence: w.example_sentence || '',
+          taskName: (data.task && data.task.name) || this.data.taskName,
           posIndex: idx + 1,
           posTotal: list.length
         })
@@ -403,7 +406,14 @@ Page({
       return
     }
     this.disableBackGuard()
-    const id = queue.enqueue({ taskId, wordId, content, wavPath, durationMs })
+    const id = queue.enqueue({
+      taskId,
+      wordId,
+      content,
+      wavPath,
+      durationMs,
+      taskName: this.data.taskName || ''
+    })
     this.setData({ saved: true })
 
     // ③ 自动上传（默认开）：保存后立即传这一条，不打断连续录音；失败退回队列

@@ -4,7 +4,7 @@
     <view class="avatar-row">
       <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
         <image class="avatar" wx:if="{{displayAvatarUrl}}" src="{{displayAvatarUrl}}" mode="aspectFill" />
-        <view class="avatar avatar-placeholder" wx:else>方</view>
+        <view class="avatar avatar-placeholder" wx:else>👤</view>
         <view class="avatar-edit">点击更换头像</view>
       </button>
     </view>
