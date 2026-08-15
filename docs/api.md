@@ -23,8 +23,9 @@
 11. [health — 健康检查](#11-health--健康检查)
 12. [agreements — 协议管理](#12-agreements--协议管理)
 13. [audit-logs — 操作审计日志](#13-audit-logs--操作审计日志)
-14. [权限与错误码速查](#14-权限与错误码速查)
-15. [典型调用流程](#15-典型调用流程)
+14. [data-health — 数据健康巡检](#14-data-health--数据健康巡检)
+15. [权限与错误码速查](#15-权限与错误码速查)
+16. [典型调用流程](#16-典型调用流程)
 
 ---
 
@@ -891,6 +892,24 @@ JWT（HS256）内包含：
 | `recorded` | bool | 该词条是否已有录音 |
 | `claimed_at` | datetime | 领取时间 |
 
+### 9.4 业务健康度（后台完善 8）
+
+`GET /api/dashboard/health`
+
+**权限**：超管看全国，省管理员自动钳制本省（join 发音人属地）。
+
+**响应 200**：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `pending` | int | 待审核积压（口径与概览一致） |
+| `today_uploaded` / `today_approved` / `today_rejected` | int | 今日新增录音 / 通过 / 驳回（UTC 日界，与趋势窗口一致） |
+| `disk_total_gb` / `disk_used_gb` / `disk_free_gb` | float | 磁盘总量 / 已用 / 剩余（GB，`MEDIA_ROOT` 所在盘） |
+| `disk_used_pct` | float | 磁盘已用百分比 |
+| `storage` | str | `cos` 腾讯云 COS / `local` 本地磁盘 |
+| `backlog_level` | str | `normal` / `high`（待审 ≥ `BACKLOG_WARN_PENDING`，默认 200，`.env` 可调） |
+| `disk_level` | str | `ok` / `warn`（磁盘剩余 < `DISK_WARN_FREE_PCT`，默认 20%，`.env` 可调） |
+
 ---
 
 ## 10. team-codes — 团队码管理
@@ -1065,7 +1084,46 @@ JWT（HS256）内包含：
 
 ---
 
-## 14. 权限与错误码速查
+## 14. data-health — 数据健康巡检（后台完善 7）
+
+所有表间为逻辑引用（**无 FOREIGN KEY**），历史数据或绕过应用层的写入可能产生**孤儿行**（子行指向不存在的父行）。本组端点仅超管可用：扫描 + 一键修复，作为无 FK 兜底。
+
+### 14.1 孤儿引用扫描
+
+`GET /api/data-health`
+
+**权限**：仅 `super_admin`（省管理员 `403`，未登录 `401`）。
+
+**响应 200**：`total`（孤儿引用总数，按「子行 × 悬空引用列」逐条计数）+ `categories` 9 类，每类 `key/name/count/items[]`（items 每类最多 200 条，count 全量）。
+
+| key | name | 含义 |
+|---|---|---|
+| `recording_word` / `recording_task` / `recording_speaker` | 录音→词条 / 任务 / 发音人 | 录音指向不存在的父行 |
+| `item_batch` / `item_word` | 任务条目→任务 / 词条 | 任务条目悬空 |
+| `claim_task` / `claim_word` / `claim_speaker` | 领取记录→任务 / 词条 / 发音人 | 领取记录悬空 |
+| `agreement_speaker` | 协议记录→发音人 | 协议接受记录悬空 |
+
+### 14.2 一键修复
+
+`POST /api/data-health/repair`
+
+**权限**：仅 `super_admin`。
+
+**请求体**（均可空）：`{"category": "item_batch", "ids": [1, 2]}`。`category` 为空修全部 9 类；`ids` 限定该类中指定子行（非孤儿行天然不命中）。**孤儿录音连带清理存储音频文件**；所有删除单事务（中途异常整体回滚），成功留审计日志「数据健康修复」。非法 `category` → `400`。
+
+**响应 200**：`{"deleted": {"<key>": <删除数>, ...}, "total": <总删除数>}`。
+
+### 14.3 待审积压数（审核页 badge）
+
+`GET /api/review/pending-count`
+
+**权限**：超管看全国，省管理员钳制为本省任务的录音（与审核列表口径一致）。
+
+**响应 200**：`{"pending": <待审录音数>}`。
+
+---
+
+## 15. 权限与错误码速查
 
 | 状态码 | 含义 |
 |---|---|
@@ -1092,10 +1150,13 @@ JWT（HS256）内包含：
 | `GET /api/speakers` `PATCH/DELETE /api/speakers/{id}` `GET /api/speakers/{id}/recordings` | ✅（全省） | ✅（限本省） |
 | `GET/POST /api/team-codes` `PATCH/DELETE /api/team-codes/{id}` | ✅（全省） | ✅（限本省） |
 | `GET /api/agreements` `GET /api/agreements/history` `POST /api/agreements` | ✅ | ❌ 403 |
+| `GET /api/dashboard/summary` `GET /api/dashboard/health` `GET /api/dashboard/trends` | ✅（全国） | ✅（限本省） |
+| `GET /api/review/pending-count` | ✅（全国） | ✅（限本省） |
+| `GET /api/data-health` `POST /api/data-health/repair` | ✅ | ❌ 403 |
 
 ---
 
-## 15. 典型调用流程
+## 16. 典型调用流程
 
 **超管导入河北词表并建任务：**
 

@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # —— 任务级进度（后台完善 4，.env 可覆盖调参）——
     # 已录词条占比 ≥ 此比例 → 接近完成（已完成=100%，已关闭=归档）
     TASK_NEAR_COMPLETE_RATIO: float = 0.8
+    # —— 业务健康度（后台完善 8，.env 可覆盖调参）——
+    # 待审核积压 ≥ 此条数 → 看板/审核页标「积压」
+    BACKLOG_WARN_PENDING: int = 200
+    # 磁盘剩余 < 此百分比 → 看板磁盘标红预警
+    DISK_WARN_FREE_PCT: float = 20.0
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),

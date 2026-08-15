@@ -13,6 +13,7 @@ from .routers import (
     audit,
     auth,
     dashboard,
+    data_health,
     excel,
     mp,
     regions,
@@ -49,6 +50,7 @@ app.include_router(users.router)
 app.include_router(agreements.router)
 app.include_router(mp.router)
 app.include_router(review.router)
+app.include_router(data_health.router)
 app.include_router(speakers.router)
 app.include_router(dashboard.router)
 app.include_router(team_codes.router)

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import case, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from ..core.config import settings
@@ -147,6 +147,21 @@ def list_review_recordings(
     )
     items = [_enrich(rec, db) for rec in recs]
     return {"total": total, "items": items}
+
+
+@router.get("/pending-count")
+def review_pending_count(
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """待审录音积压数（后台完善 8）：审核页顶部 badge 用，省管理员钳制为本省任务录音，与列表口径一致。"""
+    q = db.query(func.count(Recording.id)).join(
+        TaskBatch, Recording.task_id == TaskBatch.id
+    )
+    if admin.role == "province_admin" and admin.province_code:
+        q = q.filter(TaskBatch.province_code == admin.province_code)
+    pending = q.filter(Recording.status == "pending").scalar()
+    return {"pending": pending or 0}
 
 
 @router.post("/recordings/{recording_id}/verdict", response_model=ReviewRecordingOut)

@@ -3,12 +3,14 @@
 平台/本省整体概览 + 每个发音人的详细数据（每发音人一行关键指标 + 下钻领取记录）。
 权限：超管看全国，省管理员仅看本省（沿用 speakers.py 的属地钳制与聚合模式）。
 """
+import shutil
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from ..core.config import settings
 from ..core.deps import get_current_admin
 from ..core.reject_reasons import LABELS as REJECT_REASON_LABELS
 from ..core.speaker_quality import warning_state
@@ -27,6 +29,7 @@ from ..schemas.dashboard import (
     DashboardSummary,
     DashboardTrends,
     DashboardWordDifficulty,
+    HealthSummary,
     RejectionReasonRow,
     RegionBreakdownItem,
 )
@@ -147,6 +150,59 @@ def dashboard_summary(
         team_total=team_total,
         distinct_word_total=distinct_word_total,
         region_breakdown=region_breakdown,
+    )
+
+
+@router.get("/health", response_model=HealthSummary)
+def dashboard_health(
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """业务健康度：待审核积压 / 今日上传量 / 磁盘占用 / 存储方式（省管理员钳制本省）。
+
+    待审与今日均 join Speaker 按属地钳制（与概览口径一致）；「今日」窗口边界取 UTC，
+    与趋势接口一致，避免时区不一致。磁盘为服务器全局（MEDIA_ROOT 所在盘）。
+    """
+    scope = _province_scope(db, admin)
+    rec_q = db.query(Recording).join(Speaker, Recording.speaker_id == Speaker.id)
+    if scope:
+        rec_q = rec_q.filter(Speaker.province_code == scope)
+
+    pending = rec_q.filter(Recording.status == "pending").count()
+
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    today_rows = (
+        rec_q.filter(Recording.created_at >= today_start)
+        .with_entities(Recording.status, func.count(Recording.id))
+        .group_by(Recording.status)
+        .all()
+    )
+    today = {s: c for s, c in today_rows}
+    today_uploaded = sum(today.values())
+    today_approved = today.get("approved", 0)
+    today_rejected = today.get("rejected", 0)
+
+    usage = shutil.disk_usage(settings.MEDIA_ROOT)  # MEDIA_ROOT 启动时已 mkdir，路径必然存在
+    disk_total_gb = round(usage.total / (1024**3), 1)
+    disk_used_gb = round(usage.used / (1024**3), 1)
+    disk_free_gb = round(usage.free / (1024**3), 1)
+    disk_used_pct = round(usage.used / usage.total * 100, 1) if usage.total else 0.0
+
+    free_pct = usage.free / usage.total * 100 if usage.total else 100.0
+    return HealthSummary(
+        pending=pending,
+        today_uploaded=today_uploaded,
+        today_approved=today_approved,
+        today_rejected=today_rejected,
+        disk_total_gb=disk_total_gb,
+        disk_used_gb=disk_used_gb,
+        disk_free_gb=disk_free_gb,
+        disk_used_pct=disk_used_pct,
+        storage="cos" if settings.COS_BUCKET else "local",
+        backlog_level="high" if pending >= settings.BACKLOG_WARN_PENDING else "normal",
+        disk_level="warn" if free_pct < settings.DISK_WARN_FREE_PCT else "ok",
     )
 
 

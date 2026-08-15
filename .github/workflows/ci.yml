@@ -72,7 +72,7 @@ jobs:
           done
           curl -sf http://127.0.0.1:8000/api/health
 
-      - name: 回归脚本（16 个，固定顺序；test_api 清业务表放最前）
+      - name: 回归脚本（18 个，固定顺序；test_api 清业务表放最前）
         working-directory: backend
         run: |
           set -e
@@ -80,11 +80,11 @@ jobs:
                    verify_mp_full_flow verify_rate_limit verify_region_isolation verify_review_batch \
                    verify_review_reset_delete verify_speaker_merge verify_task_claims \
                    verify_task_team_code verify_wechat_callback verify_word_merge \
-                   verify_audit_log verify_quality_check; do
+                   verify_audit_log verify_quality_check verify_data_health; do
             echo "===== $s ====="
             .venv/bin/python scripts/$s.py || { echo "FAIL: $s"; exit 1; }
           done
-          echo "全部 16 个回归脚本通过"
+          echo "全部 18 个回归脚本通过"
 
   frontend:
     name: 前端构建

@@ -109,3 +109,19 @@ class DashboardRejectionReasons(BaseModel):
 
     total: int
     items: list[RejectionReasonRow]
+
+
+class HealthSummary(BaseModel):
+    """业务健康度（后台完善 8）：审核积压 / 今日上传 / 磁盘占用 / 存储方式（省管理员钳制本省）。"""
+
+    pending: int  # 待审核积压（口径与看板概览一致）
+    today_uploaded: int  # 今日新增录音（UTC 日界，与趋势窗口一致）
+    today_approved: int
+    today_rejected: int
+    disk_total_gb: float  # 磁盘总量（MEDIA_ROOT 所在盘，GB，1 位小数）
+    disk_used_gb: float
+    disk_free_gb: float
+    disk_used_pct: float  # 已用百分比（0-100，1 位小数）
+    storage: str  # cos 腾讯云COS / local 本地磁盘
+    backlog_level: str  # normal / high（待审 ≥ BACKLOG_WARN_PENDING）
+    disk_level: str  # ok / warn（剩余 < DISK_WARN_FREE_PCT）

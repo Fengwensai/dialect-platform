@@ -35,7 +35,7 @@ for s in test_api verify_agreements verify_cos_mode verify_dashboard verify_demo
          verify_mp_full_flow verify_rate_limit verify_region_isolation verify_review_batch \
          verify_review_reset_delete verify_speaker_merge verify_task_claims \
          verify_task_team_code verify_wechat_callback verify_word_merge \
-         verify_audit_log verify_quality_check; do
+         verify_audit_log verify_quality_check verify_data_health; do
   ./.venv/Scripts/python.exe scripts/$s.py || echo "FAIL: $s"
 done
 ```
@@ -55,7 +55,7 @@ git commit -m "feat/fix: 本次改动说明"
 git push origin master
 ```
 
-> 推 master 后 **GitHub Actions 自动跑 CI**（`ci.yml`）：后端 16 脚本全量回归（一次性 postgres 库，不碰真实数据）+ 前端 `npm run build`。到仓库 **Actions** 页看是否全绿，红了先修再部署。
+> 推 master 后 **GitHub Actions 自动跑 CI**（`ci.yml`）：后端 18 脚本全量回归（一次性 postgres 库，不碰真实数据）+ 前端 `npm run build`。到仓库 **Actions** 页看是否全绿，红了先修再部署。
 
 **提交前必查**（`.gitignore` 已封死，别手滑放行）：
 
@@ -163,7 +163,7 @@ node sync.js upload 1.0.1 "本次改动说明"          # 一键上传开发版�
 
 ## 6. 一键检查清单（每次发布前过一遍）
 
-- [ ] GitHub Actions **CI** 全绿了吗（16 脚本回归 + 前端 build，红了先修再部署）
+- [ ] GitHub Actions **CI** 全绿了吗（18 脚本回归 + 前端 build，红了先修再部署）
 - [ ] 后端改动 → 用 **Actions Deploy 按钮**（或手动 `git pull`/rsync）+ 迁移脚本 + `systemctl restart dialect-api` 了吗
 - [ ] 管理后台改动 → Deploy 按钮已同步 dist（或手动 `npm run build` + 上传 dist；5173 跑通 ≠ 线上生效）
 - [ ] 小程序改动 → 开发者工具上传 + 提审了吗

@@ -14,6 +14,7 @@
         <el-menu-item v-if="auth.isSuper" index="/agreements"><el-icon><Document /></el-icon><span>协议管理</span></el-menu-item>
         <el-menu-item v-if="auth.isSuper" index="/users"><el-icon><User /></el-icon><span>管理员管理</span></el-menu-item>
         <el-menu-item v-if="auth.isSuper" index="/audit-logs"><el-icon><Tickets /></el-icon><span>审计日志</span></el-menu-item>
+        <el-menu-item v-if="auth.isSuper" index="/data-health"><el-icon><FirstAidKit /></el-icon><span>数据健康</span></el-menu-item>
       </el-menu>
     </el-aside>
 

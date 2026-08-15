@@ -47,6 +47,9 @@
           导出已通过数据集
         </el-button>
         <span class="total">共 {{ total }} 条</span>
+        <span class="pending-badge" :class="{ hot: pendingCount > 0 }">
+          待审 <b>{{ pendingCount }}</b> 条
+        </span>
 
         <!-- 快捷键模式开关 + 帮助 -->
         <el-switch
@@ -378,6 +381,7 @@ const exporting = ref(false)
 const batchLoading = ref(false)
 const items = ref([])
 const total = ref(0)
+const pendingCount = ref(0) // 待审积压（全局/本省，顶部 badge，后台完善 8）
 const page = ref(1)
 const pageSize = ref(20)
 const filterTaskId = ref(null)
@@ -446,6 +450,15 @@ async function load(onDone) {
   }
 }
 
+async function loadPending() {
+  try {
+    const data = await request.get('/review/pending-count')
+    pendingCount.value = data.pending
+  } catch (e) {
+    // 静默失败，badge 保留旧值
+  }
+}
+
 function reset() {
   filterTaskId.value = null
   filterStatus.value = 'pending'
@@ -461,6 +474,7 @@ function refresh() {
   // 当前页审空则回退一页，避免停留在空页
   if (items.value.length === 1 && page.value > 1) page.value--
   load()
+  loadPending() // 批量/重置/删除后刷新待审积压 badge
 }
 
 async function exportDataset() {
@@ -635,6 +649,7 @@ function removeAndAdvance(r) {
   } else {
     currentId.value = null
   }
+  loadPending() // 快审改判后刷新待审积压 badge
 }
 
 /* ---------- 快捷键 ---------- */
@@ -765,6 +780,7 @@ onMounted(async () => {
   }
   window.addEventListener('keydown', onKeydown)
   load()
+  loadPending()
 })
 
 onUnmounted(() => {
@@ -782,6 +798,18 @@ onUnmounted(() => {
 .total {
   color: #909399;
   font-size: 13px;
+}
+.pending-badge {
+  color: #909399;
+  font-size: 13px;
+  margin-left: 2px;
+}
+.pending-badge.hot {
+  color: #e6a23c;
+}
+.pending-badge.hot b {
+  color: #f56c6c;
+  font-size: 14px;
 }
 .batch-bar {
   display: flex;

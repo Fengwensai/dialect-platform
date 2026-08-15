@@ -50,6 +50,28 @@
       </div>
     </el-card>
 
+    <!-- ===== 业务健康 ===== -->
+    <el-card shadow="never" style="margin-bottom: 12px">
+      <div class="card-head">
+        <b>业务健康</b>
+        <el-button size="small" :icon="Refresh" :loading="healthLoading" @click="loadHealth">刷新</el-button>
+      </div>
+      <div v-loading="healthLoading" class="stats-row">
+        <div class="stat-box warn" :class="{ bad: health?.backlog_level === 'high' }">
+          <div class="stat-num">{{ health?.pending ?? '-' }}</div>
+          <div class="stat-label">待审核积压{{ health?.backlog_level === 'high' ? '（积压）' : '' }}</div>
+        </div>
+        <div class="stat-box"><div class="stat-num">{{ health?.today_uploaded ?? '-' }}</div><div class="stat-label">今日上传</div></div>
+        <div class="stat-box ok"><div class="stat-num">{{ health?.today_approved ?? '-' }}</div><div class="stat-label">今日通过</div></div>
+        <div class="stat-box bad"><div class="stat-num">{{ health?.today_rejected ?? '-' }}</div><div class="stat-label">今日驳回</div></div>
+        <div class="stat-box" :class="{ bad: health?.disk_level === 'warn' }">
+          <div class="stat-num">{{ health?.disk_free_gb ?? '-' }}<span class="stat-unit">GB</span></div>
+          <div class="stat-label">磁盘剩余（已用 {{ health?.disk_used_pct ?? '-' }}%）</div>
+        </div>
+        <div class="stat-box"><div class="stat-num">{{ storageLabel }}</div><div class="stat-label">存储方式</div></div>
+      </div>
+    </el-card>
+
     <!-- ===== 词条采集难度 ===== -->
     <el-card shadow="never" style="margin-bottom: 12px">
       <template #header>
@@ -373,6 +395,8 @@ const regionStore = useRegionStore()
 // —— 概览 ——
 const summary = ref(null)
 const summaryLoading = ref(false)
+const health = ref(null) // 业务健康（后台完善 8）
+const healthLoading = ref(false)
 
 // —— 趋势（近 N 天数字卡片）——
 const trendDays = ref(7)
@@ -489,6 +513,19 @@ async function loadTrends() {
     trendLoading.value = false
   }
 }
+
+async function loadHealth() {
+  healthLoading.value = true
+  try {
+    health.value = await request.get('/dashboard/health')
+  } finally {
+    healthLoading.value = false
+  }
+}
+
+const storageLabel = computed(() =>
+  health.value?.storage === 'cos' ? '腾讯云 COS' : '本地磁盘'
+)
 
 async function loadWordDifficulty() {
   wordLoading.value = true
@@ -627,6 +664,7 @@ onMounted(async () => {
   await regionStore.ensureLoaded()
   loadSummary()
   loadTrends()
+  loadHealth()
   loadWordDifficulty()
   loadRejectReasons()
   loadSpeakers()
@@ -671,6 +709,12 @@ onMounted(async () => {
 .stat-box.warn .stat-num { color: #e6a23c; }
 .stat-box.ok .stat-num { color: #67c23a; }
 .stat-box.bad .stat-num { color: #f56c6c; }
+.stat-unit {
+  font-size: 12px;
+  font-weight: 400;
+  color: #909399;
+  margin-left: 2px;
+}
 .stat-label {
   margin-top: 2px;
   font-size: 12px;
