@@ -13,6 +13,7 @@ class SpeakerUpdate(BaseModel):
     age_bracket: str | None = None
     province_code: str | None = None
     city_code: str | None = None
+    upload_paused: bool | None = None  # 质量预警：管理员一键暂停/恢复上传（缺省不改）
 
 
 class SpeakerMergeRequest(BaseModel):
@@ -85,4 +86,9 @@ class SpeakerAdminOut(BaseModel):
     gender: str | None = None
     age_bracket: str | None = None
     recording_count: int = 0
+    # —— 质量预警（后台完善 3）——
+    upload_paused: bool = False  # 管理员暂停上传
+    approval_rate: float = 0.0  # 已审核通过率 approved/(approved+rejected)
+    reviewed_total: int = 0  # 已审核条数（通过+驳回）
+    quality_warned: bool = False  # 通过率低且已审核 ≥ 下限 → 标黄预警
     created_at: datetime

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..core.deps import get_current_admin
 from ..core.reject_reasons import LABELS as REJECT_REASON_LABELS
+from ..core.speaker_quality import warning_state
 from ..db import get_db
 from ..models.admin import AdminUser
 from ..models.recording import Recording
@@ -254,6 +255,9 @@ def dashboard_speakers(
     for sid in page_ids:
         s = speaker_map[sid]
         dur_row = next(r for r in rows if r["sid"] == sid)
+        approved = dur_row["approved"]
+        rejected = dur_row["rejected"]
+        quality_warned, _, _ = warning_state(approved, rejected)
         items.append(
             DashboardSpeakerRow(
                 id=s.id,
@@ -268,13 +272,15 @@ def dashboard_speakers(
                 created_at=s.created_at,
                 recording_total=dur_row["recording_total"],
                 pending=dur_row["pending"],
-                approved=dur_row["approved"],
-                rejected=dur_row["rejected"],
+                approved=approved,
+                rejected=rejected,
                 total_duration_ms=dur_row["duration"],
                 approved_duration_ms=dur_row["approved_duration"],
-                approval_rate=dur_row["approved"] / (dur_row["approved"] + dur_row["rejected"])
-                if (dur_row["approved"] + dur_row["rejected"])
+                approval_rate=approved / (approved + rejected)
+                if (approved + rejected)
                 else 0.0,
+                upload_paused=s.upload_paused,
+                quality_warned=quality_warned,
                 task_count=task_cnt.get(sid, 0),
                 word_count=word_cnt.get(sid, 0),
                 last_active_at=dur_row["last_active"],

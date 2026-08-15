@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     QUALITY_SILENCE_RATIO: float = 0.9
     # 整体 RMS 低于此 dBFS → too_quiet
     QUALITY_MIN_RMS_DB: float = -40.0
+    # —— 发音人质量预警（后台完善 3，.env 可覆盖调参）——
+    # 已审核通过率低于此值 → 低质预警（标黄）
+    SPEAKER_WARN_APPROVAL_RATE: float = 0.4
+    # 已审核（通过+驳回）≥ 此条数才触发预警，防小样本误报
+    SPEAKER_WARN_MIN_REVIEWED: int = 10
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),

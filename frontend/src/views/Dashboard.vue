@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="dashboard-page">
     <!-- ===== 概览卡片 ===== -->
     <el-card shadow="never" style="margin-bottom: 12px">
       <div class="card-head">
@@ -155,7 +155,7 @@
         <span class="total">共 {{ total }} 条</span>
       </div>
 
-      <el-table :data="items" v-loading="loading" border stripe>
+      <el-table :data="items" v-loading="loading" border stripe :row-class-name="rowClass">
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="nickname" label="昵称" width="110" show-overflow-tooltip />
         <el-table-column prop="device_id" label="设备ID" width="150" show-overflow-tooltip />
@@ -192,8 +192,11 @@
         <el-table-column label="总时长" width="90">
           <template #default="{ row }">{{ fmtTotalDur(row.total_duration_ms) }}</template>
         </el-table-column>
-        <el-table-column label="通过率" width="80">
-          <template #default="{ row }">{{ pct(row.approval_rate) }}</template>
+        <el-table-column label="通过率" width="130">
+          <template #default="{ row }">
+            <el-tag v-if="row.quality_warned" type="warning" size="small">低质预警</el-tag>
+            <span :class="row.quality_warned ? 'num-warn' : ''">{{ pct(row.approval_rate) }}</span>
+          </template>
         </el-table-column>
         <el-table-column prop="task_count" label="任务数" width="70" />
         <el-table-column prop="word_count" label="词条数" width="70" />
@@ -530,6 +533,11 @@ async function loadSpeakers() {
   }
 }
 
+// 质量预警（后台完善 3）：低质预警发音人行整行标黄提醒
+function rowClass({ row }) {
+  return row.quality_warned ? 'row-warn' : ''
+}
+
 function resetFilters() {
   keyword.value = ''
   filterProvince.value = ''
@@ -659,6 +667,13 @@ onMounted(async () => {
   loadSpeakers()
 })
 </script>
+
+<!-- 质量预警标黄：给 el-table 内部 td 上色必须非 scoped（照 ExcelImport.vue 先例） -->
+<style>
+.dashboard-page .el-table .row-warn td {
+  background-color: #fdf6ec;
+}
+</style>
 
 <style scoped>
 .card-head {

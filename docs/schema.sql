@@ -140,6 +140,7 @@ CREATE TABLE speakers (
 	age_bracket VARCHAR(20), 
 	city_code VARCHAR(16), 
 	team_code VARCHAR(32), 
+	upload_paused BOOLEAN DEFAULT false NOT NULL, 
 	CONSTRAINT speakers_pkey PRIMARY KEY (id)
 )
 

@@ -279,7 +279,7 @@
 
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { ElButton, ElMessage, ElMessageBox, ElTag } from 'element-plus'
+import { ElButton, ElMessage, ElMessageBox, ElTag, ElTooltip } from 'element-plus'
 import { Search, RefreshLeft, Download } from '@element-plus/icons-vue'
 import request from '../api/request'
 import { useAuthStore } from '../stores/auth'
@@ -384,6 +384,11 @@ function fmtTotalDur(ms) {
   return `${sec}秒`
 }
 
+function pct(v) {
+  if (v == null || isNaN(v)) return '-'
+  return (v * 100).toFixed(0) + '%'
+}
+
 // el-table-v2 列配置（cellRenderer 返回 VNode，渲染自定义单元格）
 // 注意：cellRenderer 收到的 props 是 { rowData, rowIndex, ... }（无 row），
 // 自定义单元格一律从 rowData 取字段。
@@ -423,6 +428,20 @@ const columns = computed(() => [
   },
   { key: 'recording_count', dataKey: 'recording_count', title: '录音数', width: 80 },
   {
+    key: 'quality',
+    title: '质量',
+    width: 110,
+    cellRenderer: ({ rowData }) => {
+      if (rowData.upload_paused) return h(ElTag, { type: 'danger', size: 'small' }, () => '已暂停')
+      if (rowData.quality_warned) {
+        return h(ElTooltip,
+          { content: `通过率 ${pct(rowData.approval_rate)}（已审核 ${rowData.reviewed_total} 条）`, placement: 'top' },
+          () => h(ElTag, { type: 'warning', size: 'small' }, () => '低质预警'))
+      }
+      return h('span', { class: 'tr-empty' }, '-')
+    }
+  },
+  {
     key: 'created_at',
     title: '建档时间',
     width: 150,
@@ -431,13 +450,14 @@ const columns = computed(() => [
   {
     key: 'actions',
     title: '操作',
-    width: 260,
+    width: 320,
     fixed: 'right',
     cellRenderer: ({ rowData }) =>
       h('div', { class: 'actions-cell' }, [
         h(ElButton, { link: true, type: 'primary', onClick: () => openDetail(rowData) }, () => '明细'),
         h(ElButton, { link: true, type: 'primary', onClick: () => openEdit(rowData) }, () => '编辑'),
         h(ElButton, { link: true, type: 'warning', onClick: () => openMerge(rowData) }, () => '合并'),
+        h(ElButton, { link: true, type: rowData.upload_paused ? 'success' : 'warning', onClick: () => togglePause(rowData) }, () => rowData.upload_paused ? '恢复上传' : '暂停上传'),
         h(ElButton, { link: true, type: 'danger', onClick: () => removeSpeaker(rowData) }, () => '删除')
       ])
   }
@@ -619,6 +639,23 @@ async function removeSpeaker(row) {
   } catch (e) { return }
   await request.delete(`/speakers/${row.id}`)
   ElMessage.success('已删除')
+  load()
+}
+
+// 质量预警（后台完善 3）：一键暂停/恢复上传。暂停弹确认（影响发音人操作），恢复直接执行。
+async function togglePause(row) {
+  const pause = !row.upload_paused
+  if (pause) {
+    try {
+      await ElMessageBox.confirm(
+        `确定暂停「${row.nickname || row.device_id || row.id}」的上传吗？暂停后该发音人无法再上传录音（可随时恢复）。`,
+        '暂停上传',
+        { type: 'warning', confirmButtonClass: 'el-button--danger' }
+      )
+    } catch (e) { return }
+  }
+  await request.patch(`/speakers/${row.id}`, { upload_paused: pause })
+  ElMessage.success(pause ? '已暂停上传' : '已恢复上传')
   load()
 }
 

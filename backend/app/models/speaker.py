@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import Boolean, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -26,6 +26,9 @@ class Speaker(Base):
     team_code: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     gender: Mapped[str | None] = mapped_column(String(10), nullable=True)  # male/female/other
     age_bracket: Mapped[str | None] = mapped_column(String(20), nullable=True)  # under18/age18_30/age31_45/age46_60/over60
+    upload_paused: Mapped[bool] = mapped_column(  # 管理员暂停该发音人上传（质量预警，后台完善 3）
+        Boolean, default=False, server_default="false", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

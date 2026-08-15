@@ -516,6 +516,78 @@ def main():
         r = c.get("/api/dashboard/rejection-reasons")
         check("未登录 rejection-reasons → 401", r.status_code == 401, str(r.status_code))
 
+        # ================= 发音人质量预警（后台完善 3） =================
+        # A：12 条已审核（2 通过 + 10 驳回）→ 通过率 16.7% <40% 且已审 12≥10 → 预警
+        # B：4 条全驳回 → 已审 4<10 → 样本不足不预警
+        sp_warn_a = Speaker(device_id="verify_dash_warn_a", nickname="预警甲",
+                            province_code=HB_PROV, city_code=HB_CITY, team_code=HB_TEAM,
+                            gender="male", age_bracket="age18_30", openid="vd_warn_a")
+        sp_warn_b = Speaker(device_id="verify_dash_warn_b", nickname="预警乙",
+                            province_code=HB_PROV, city_code=HB_CITY, team_code=HB_TEAM,
+                            gender="female", age_bracket="age31_45", openid="vd_warn_b")
+        db.add_all([sp_warn_a, sp_warn_b])
+        db.flush()
+        db.commit()
+        check("建质量预警发音人 2 人", bool(sp_warn_a.id and sp_warn_b.id))
+
+        def add_rec(sp, st):
+            db.add(Recording(task_id=task_hb.id, word_id=w_hb1.id, speaker_id=sp.id,
+                             audio_url="verify/dash.wav", audio_duration=1000, file_size=1000,
+                             status=st, content_check_status="media_passed",
+                             created_at=now + timedelta(minutes=3)))
+
+        for _ in range(2):
+            add_rec(sp_warn_a, "approved")
+        for _ in range(10):
+            add_rec(sp_warn_a, "rejected")
+        for _ in range(4):
+            add_rec(sp_warn_b, "rejected")
+        db.commit()
+
+        r = c.get("/api/dashboard/speakers", headers=SUPER,
+                  params={"keyword": "verify_dash_warn", "page_size": 50})
+        d = r.json()
+        by_id = {x["id"]: x for x in d["items"]}
+        wa = by_id.get(sp_warn_a.id, {})
+        wb = by_id.get(sp_warn_b.id, {})
+        check("预警 speakers 200 + 2 人",
+              r.status_code == 200 and d["total"] == 2 and wa and wb,
+              str(r.status_code) + f" total={d.get('total')}")
+        check("A 低质预警（通过率 2/12=16.7% <40% 且已审 12≥10）",
+              wa.get("quality_warned") is True
+              and wa.get("approved", 0) + wa.get("rejected", 0) == 12
+              and abs(wa.get("approval_rate", 0) - 2 / 12) < 1e-9
+              and wa.get("upload_paused") is False,
+              f"{wa}")
+        check("B 样本不足不预警（已审 4<10）",
+              wb.get("quality_warned") is False
+              and wb.get("approved", 0) + wb.get("rejected", 0) == 4
+              and abs(wb.get("approval_rate", 0) - 0.0) < 1e-9,
+              f"{wb}")
+
+        # 一键暂停/恢复上传（超管 PATCH /speakers/{id}，后台完善 3）
+        r = c.patch(f"/api/speakers/{sp_warn_a.id}", headers=SUPER, json={"upload_paused": True})
+        check("暂停上传 → 200 且 upload_paused=true",
+              r.status_code == 200 and r.json().get("upload_paused") is True, str(r.status_code))
+        d = c.get("/api/dashboard/speakers", headers=SUPER,
+                  params={"keyword": "verify_dash_warn", "page_size": 50}).json()
+        paused = next((x for x in d["items"] if x["id"] == sp_warn_a.id), {})
+        check("看板反映暂停状态", paused.get("upload_paused") is True, f"{paused}")
+        r = c.patch(f"/api/speakers/{sp_warn_a.id}", headers=SUPER, json={"upload_paused": False})
+        check("恢复上传 → 200 且 upload_paused=false",
+              r.status_code == 200 and r.json().get("upload_paused") is False, str(r.status_code))
+
+        # 省管可见本省预警发音人
+        d = c.get("/api/dashboard/speakers", headers=HB,
+                  params={"keyword": "verify_dash_warn"}).json()
+        check("省管可见本省 2 名预警发音人",
+              d["total"] == 2 and all(x["province_code"] == HB_PROV for x in d["items"]),
+              f"total={d.get('total')} codes={[x['province_code'] for x in d.get('items', [])]}")
+
+        # 未登录 PATCH → 401
+        r = c.patch(f"/api/speakers/{sp_warn_a.id}", json={"upload_paused": True})
+        check("未登录暂停 → 401", r.status_code == 401, str(r.status_code))
+
         cleanup(db)
         check("清理种子数据", True)
     finally:

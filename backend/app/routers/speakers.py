@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..core.config import settings
 from ..core.deps import get_current_admin
+from ..core.speaker_quality import warning_state
 from ..db import get_db
 from ..models.admin import AdminUser
 from ..models.agreement import SpeakerAgreement
@@ -130,6 +131,24 @@ def _recording_counts(db: Session) -> dict[int, int]:
     return {sid: cnt for sid, cnt in rows}
 
 
+def _review_counts(db: Session) -> dict[int, tuple[int, int]]:
+    """每个发音人的已审核计数（speaker_id → (approved, rejected)）。
+
+    与看板 dashboard_speakers 同口径：只统计已审核（通过+驳回），pending 不计入通过率。
+    """
+    rows = (
+        db.query(Recording.speaker_id, Recording.status, func.count(Recording.id))
+        .filter(Recording.status.in_(["approved", "rejected"]))
+        .group_by(Recording.speaker_id, Recording.status)
+        .all()
+    )
+    out: dict[int, list[int]] = {}
+    for sid, st, cnt in rows:
+        d = out.setdefault(sid, [0, 0])
+        d[0 if st == "approved" else 1] += cnt
+    return {sid: (a, r) for sid, (a, r) in out.items()}
+
+
 def _pick_better_recording(a: Recording, b: Recording) -> Recording:
     """录音冲突保留策略：approved > rejected > pending，同级保留 created_at 较新者。
 
@@ -147,9 +166,17 @@ def _pick_better_recording(a: Recording, b: Recording) -> Recording:
     return b if tb > ta else a
 
 
-def _to_out(speaker: Speaker, counts: dict[int, int]) -> SpeakerAdminOut:
+def _to_out(
+    speaker: Speaker,
+    counts: dict[int, int],
+    review_counts: dict[int, tuple[int, int]],
+) -> SpeakerAdminOut:
     out = SpeakerAdminOut.model_validate(speaker)
     out.recording_count = counts.get(speaker.id, 0)
+    approved, rejected = review_counts.get(speaker.id, (0, 0))
+    out.quality_warned, out.approval_rate, out.reviewed_total = warning_state(
+        approved, rejected
+    )
     return out
 
 
@@ -176,7 +203,8 @@ def list_speakers(
         .all()
     )
     counts = _recording_counts(db)
-    items = [_to_out(s, counts) for s in speakers]
+    review_counts = _review_counts(db)
+    items = [_to_out(s, counts, review_counts) for s in speakers]
     return {"total": total, "items": items}
 
 
@@ -283,6 +311,10 @@ def update_speaker_profile(
     if "age_bracket" in data:
         speaker.age_bracket = age_bracket or None
 
+    # —— 质量预警：一键暂停/恢复上传（后台完善 3，缺省不改）——
+    if "upload_paused" in data and data["upload_paused"] is not None:
+        speaker.upload_paused = bool(data["upload_paused"])
+
     # —— 属地纠错（省+市）——
     new_province = data.get("province_code") if "province_code" in data else None
     if new_province is not None:
@@ -336,7 +368,7 @@ def update_speaker_profile(
 
     db.commit()
     db.refresh(speaker)
-    return _to_out(speaker, _recording_counts(db))
+    return _to_out(speaker, _recording_counts(db), _review_counts(db))
 
 
 def _recording_out(rec: Recording, db: Session) -> SpeakerRecordingOut:

@@ -281,6 +281,11 @@ async def upload_recording(
     )
     _fill_profile_if_empty(speaker, gender, age_bracket)
 
+    # 4.4 质量预警拦截（后台完善 3）：管理员暂停该发音人上传，防低质录音灌入。
+    #    放协议门禁之前：被暂停的发音人不消耗后续任何检查。
+    if speaker.upload_paused:
+        raise HTTPException(status_code=403, detail="该发音人已被暂停上传，请联系管理员")
+
     # 4.5 协议门禁（阶段九）：登录身份未同意最新版协议禁止上传；匿名 device_id 路径不拦。
     if current_speaker is not None and pending_agreement_types(db, current_speaker.id):
         raise HTTPException(status_code=403, detail=GUARD_DETAIL)

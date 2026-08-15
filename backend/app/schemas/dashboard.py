@@ -49,6 +49,8 @@ class DashboardSpeakerRow(BaseModel):
     total_duration_ms: int = 0
     approved_duration_ms: int = 0
     approval_rate: float = 0.0
+    upload_paused: bool = False  # 管理员暂停上传（质量预警，后台完善 3）
+    quality_warned: bool = False  # 通过率低且已审核 ≥ 下限 → 标黄预警
     task_count: int = 0  # 参与的不同任务数
     word_count: int = 0  # 已录的不同词条数
     last_active_at: datetime | None = None

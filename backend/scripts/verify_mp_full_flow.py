@@ -317,6 +317,29 @@ def main():
               and rdb.reject_reasons is None and rdb.review_note is None,
               str(rr.status_code) + " " + str(j(rr))[:80] + f" reasons={rdb.reject_reasons}")
 
+        # —— 12.6 质量预警：暂停上传 → 403；恢复 → 可传（后台完善 3）——
+        r = api("PATCH", f"/api/speakers/{sp.id}", token=SUPER, body={"upload_paused": True})
+        check("暂停发音人上传 → 200 且 upload_paused=true",
+              r.status_code == 200 and r.json().get("upload_paused") is True,
+              str(r.status_code) + " " + str(j(r))[:80])
+        rr = requests.post(BASE + "/api/mp/recordings", headers=SP,
+                           data={"task_id": str(task_id), "word_id": str(w2.id),
+                                 "duration": "1000", "device_id": DEVICE},
+                           files={"file": ("vfy.wav", wav, "audio/wav")}, timeout=15)
+        check("暂停后上传 → 403 已被暂停",
+              rr.status_code == 403 and "暂停上传" in rr.text,
+              str(rr.status_code) + " " + str(j(rr))[:80])
+        r = api("PATCH", f"/api/speakers/{sp.id}", token=SUPER, body={"upload_paused": False})
+        check("恢复发音人上传 → 200 且 upload_paused=false",
+              r.status_code == 200 and r.json().get("upload_paused") is False,
+              str(r.status_code) + " " + str(j(r))[:80])
+        rr = requests.post(BASE + "/api/mp/recordings", headers=SP,
+                           data={"task_id": str(task_id), "word_id": str(w2.id),
+                                 "duration": "1000", "device_id": DEVICE},
+                           files={"file": ("vfy.wav", wav, "audio/wav")}, timeout=15)
+        check("恢复后上传 → 200 覆盖成功",
+              rr.status_code == 200, str(rr.status_code) + " " + str(j(rr))[:80])
+
     finally:
         cleanup(db)
         db.close()
