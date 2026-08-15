@@ -1,5 +1,8 @@
+from datetime import datetime, timezone
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..core.deps import get_current_admin
@@ -12,7 +15,8 @@ from ..models.word import WordLibrary
 from ..schemas.word import WordMergeRequest, WordOut, WordUpdate
 from ..services import rate_limit, storage
 from ..services.audit import log_admin_action
-from ..services.region_matcher import match_region
+from ..services.export import csv_response, recordings_zip_response
+from ..services.region_matcher import load_regions, match_region
 from .speakers import _pick_better_recording
 
 router = APIRouter(prefix="/api/words", tags=["words"])
@@ -119,6 +123,150 @@ def check_duplicate_word(
             "dialect_point": dup.dialect_point,
         },
     }
+
+
+WORD_EXPORT_COLUMNS = [
+    "编号",
+    "词条内容",
+    "方言点",
+    "例句",
+    "发音提示",
+    "行政区划",
+    "状态",
+    "录音总数",
+    "待审",
+    "通过",
+    "驳回",
+    "通过率",
+    "驳回率",
+]
+
+
+@router.get("/export")
+def export_words(
+    province_code: str | None = None,
+    city_code: str | None = None,
+    district_code: str | None = None,
+    keyword: str | None = None,
+    status: str | None = None,
+    sort_by: str = "recording",
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """词条清单 CSV（含采集难度/通过率/驳回率），供离线分析词条质量。
+
+    筛选与 list_words 一致但不分页；难度口径与看板 dashboard_words 一致（按当前 rejected 近似）。
+    省管理员仅导出本省词条。默认按录音总数多优先，可改 reject（驳回率） / approval（通过率）。
+    """
+    if sort_by not in ("reject", "approval", "recording"):
+        raise HTTPException(status_code=422, detail="sort_by 仅支持 reject/approval/recording")
+    q = _scope_query(db, admin)
+    # 省管理员限定本省：显式传入的省参数钳制为本省
+    if admin.role == "province_admin" and admin.province_code:
+        province_code = admin.province_code
+    if province_code:
+        q = q.filter(WordLibrary.province_code == province_code)
+    if city_code:
+        q = q.filter(WordLibrary.city_code == city_code)
+    if district_code:
+        q = q.filter(WordLibrary.district_code == district_code)
+    if status:
+        if status not in ("active", "disabled"):
+            raise HTTPException(status_code=422, detail="status 仅支持 active/disabled")
+        q = q.filter(WordLibrary.status == status)
+    if keyword:
+        kw = f"%{keyword.strip()}%"
+        q = q.filter(
+            or_(
+                WordLibrary.content.like(kw),
+                WordLibrary.dialect_point.like(kw),
+                WordLibrary.code.like(kw),
+            )
+        )
+
+    words = q.all()
+    word_ids = [w.id for w in words]
+    rows = (
+        db.query(Recording.word_id, Recording.status, func.count(Recording.id))
+        .filter(Recording.word_id.in_(word_ids))
+        .group_by(Recording.word_id, Recording.status)
+        .all()
+    )
+    agg: dict[int, dict] = {}
+    for wid, st, c in rows:
+        d = agg.setdefault(wid, {"pending": 0, "approved": 0, "rejected": 0})
+        d[st] = c
+
+    regions = load_regions(db)
+    region_name = lambda code: regions[code].name if code in regions else (code or "")
+
+    out = []
+    for w in words:
+        a = agg.get(w.id, {"pending": 0, "approved": 0, "rejected": 0})
+        reviewed = a["approved"] + a["rejected"]
+        region = "".join(
+            n for n in (region_name(w.province_code), region_name(w.city_code), region_name(w.district_code)) if n
+        )
+        out.append(
+            {
+                "编号": w.code,
+                "词条内容": w.content,
+                "方言点": w.dialect_point or "",
+                "例句": w.example_sentence or "",
+                "发音提示": w.pronunciation_hint or "",
+                "行政区划": region,
+                "状态": "启用" if w.status == "active" else "禁用",
+                "录音总数": a["pending"] + a["approved"] + a["rejected"],
+                "待审": a["pending"],
+                "通过": a["approved"],
+                "驳回": a["rejected"],
+                "通过率": round(a["approved"] / reviewed, 4) if reviewed else 0.0,
+                "驳回率": round(a["rejected"] / reviewed, 4) if reviewed else 0.0,
+            }
+        )
+
+    orders = {
+        "reject": lambda r: -r["驳回率"],
+        "approval": lambda r: r["通过率"],
+        "recording": lambda r: -r["录音总数"],
+    }
+    out.sort(key=orders[sort_by])
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return csv_response(out, WORD_EXPORT_COLUMNS, f"words_manifest_{ts}.csv")
+
+
+@router.get("/{word_id}/recordings/export")
+def export_word_recordings(
+    word_id: int,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """某词条全部录音 ZIP（含驳回/待审，可选按状态过滤）→ audios/ + manifest.csv。
+
+    省管理员仅限本省词条。复用 services.export 的统一打包（缺音频不抛错，manifest 标 audio_present=0）。
+    """
+    word = db.get(WordLibrary, word_id)
+    if word is None:
+        raise HTTPException(status_code=404, detail="词条不存在")
+    if admin.role == "province_admin" and word.province_code != admin.province_code:
+        raise HTTPException(status_code=403, detail="无权操作其他省份词条")
+    if status is not None and status not in ("pending", "approved", "rejected"):
+        raise HTTPException(status_code=422, detail="status 仅支持 pending/approved/rejected")
+
+    q = db.query(Recording).filter(Recording.word_id == word_id)
+    if status is not None:
+        q = q.filter(Recording.status == status)
+    recs = q.order_by(Recording.id).all()
+    if not recs:
+        raise HTTPException(status_code=400, detail="该词条暂无录音")
+
+    def arcname(rec, out):
+        province = word.province_code or "unknown"
+        return f"audios/{province}/word_{word_id}/{Path(rec.audio_url).name}"
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return recordings_zip_response(db, recs, arcname, f"word_{word_id}_recordings_{ts}.zip")
 
 
 @router.post("/merge")

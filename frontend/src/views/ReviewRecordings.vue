@@ -330,6 +330,7 @@ import { Search, RefreshLeft, Download, CircleCheck, CircleClose, Delete, VideoP
 import request from '../api/request'
 import { useAuthStore } from '../stores/auth'
 import { useRegionStore } from '../stores/regions'
+import { downloadFile } from '../utils/download'
 
 const auth = useAuthStore()
 const regionStore = useRegionStore()
@@ -464,43 +465,14 @@ function refresh() {
 
 async function exportDataset() {
   // 始终导出 approved；只尊重任务筛选，忽略状态下拉（按钮名已指明“已通过”）。
-  // 用原生 fetch：axios 拦截器会剥掉 headers（拿不到 Content-Disposition 文件名），
-  // 且错误响应在 blob 模式下 detail 读不到。
   const params = new URLSearchParams()
   if (filterTaskId.value) params.set('task_id', filterTaskId.value)
   const qs = params.toString()
-  const token = localStorage.getItem('token') || ''
-  exporting.value = true
-  try {
-    const resp = await fetch(qs ? `/api/review/export?${qs}` : '/api/review/export', {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    if (!resp.ok) {
-      let msg = '导出失败'
-      try {
-        const data = await resp.json()
-        if (data?.detail) msg = data.detail
-      } catch (e) { /* 非 JSON 错误体，用默认提示 */ }
-      ElMessage.error(msg)
-      return
-    }
-    const blob = await resp.blob()
-    let filename = `dialect_dataset_${Date.now()}.zip`
-    const cd = resp.headers.get('Content-Disposition') || ''
-    const m = cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="?([^";]+)"?/i)
-    if (m && m[1]) filename = decodeURIComponent(m[1])
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-    ElMessage.success('数据集已导出')
-  } finally {
-    exporting.value = false
-  }
+  await downloadFile(
+    qs ? `/api/review/export?${qs}` : '/api/review/export',
+    `dialect_dataset_${Date.now()}.zip`,
+    exporting
+  )
 }
 
 function openTrans(row) {

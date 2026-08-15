@@ -37,6 +37,7 @@ from ..schemas.speakers import (
 )
 from ..services import rate_limit, storage
 from ..services.audit import log_admin_action
+from ..services.export import recordings_zip_response
 from .mp import AGE_BRACKETS, GENDERS
 
 router = APIRouter(prefix="/api/speakers", tags=["speakers"])
@@ -489,10 +490,11 @@ def export_speaker_recordings(
     speaker_id: int,
     status: str | None = None,
     task_id: int | None = None,
+    format: str = "csv",
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
-    """导出发音人录音明细 CSV（全量，不受分页影响，遵循状态/任务筛选）。"""
+    """导出发音人录音：csv=明细（全量，不受分页影响，遵循状态/任务筛选）；zip=明细+音频原文件打包。"""
     speaker = db.get(Speaker, speaker_id)
     if speaker is None:
         raise HTTPException(status_code=404, detail="发音人不存在")
@@ -504,6 +506,8 @@ def export_speaker_recordings(
         raise HTTPException(status_code=403, detail="只能查看本省发音人")
     if status is not None and status not in VALID_REC_STATUS:
         raise HTTPException(status_code=422, detail="status 仅支持 pending/approved/rejected")
+    if format not in ("csv", "zip"):
+        raise HTTPException(status_code=422, detail="format 仅支持 csv/zip")
 
     q = db.query(Recording).filter(Recording.speaker_id == speaker_id)
     if task_id is not None:
@@ -511,6 +515,18 @@ def export_speaker_recordings(
     if status is not None:
         q = q.filter(Recording.status == status)
     recs = q.order_by(Recording.created_at.desc(), Recording.id.desc()).all()
+    if format == "zip":
+        if not recs:
+            raise HTTPException(status_code=400, detail="该发音人暂无录音")
+
+        def arcname(rec, out):
+            province = speaker.province_code or "unknown"
+            return f"audios/{province}/speaker_{speaker_id}/{Path(rec.audio_url).name}"
+
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        return recordings_zip_response(
+            db, recs, arcname, f"speaker_{speaker_id}_recordings_{ts}.zip"
+        )
 
     columns = [
         "录音ID",

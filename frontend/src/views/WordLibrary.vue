@@ -19,6 +19,7 @@
         </el-select>
         <el-button type="primary" :icon="Search" @click="load">查询</el-button>
         <el-button :icon="RefreshLeft" @click="reset">重置</el-button>
+        <el-button type="success" :icon="Download" :loading="exporting" @click="exportWords">导出清单</el-button>
         <span class="total">共 {{ total }} 条</span>
       </div>
     </el-card>
@@ -125,13 +126,15 @@
 <script setup>
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { ElButton, ElMessage, ElMessageBox, ElSwitch, ElTag } from 'element-plus'
-import { Search, RefreshLeft } from '@element-plus/icons-vue'
+import { Download, RefreshLeft, Search } from '@element-plus/icons-vue'
 import request from '../api/request'
 import { useRegionStore } from '../stores/regions'
+import { downloadFile } from '../utils/download'
 
 const regionStore = useRegionStore()
 const loading = ref(false)
 const saving = ref(false)
+const exporting = ref(false)
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -200,10 +203,11 @@ const columns = computed(() => [
   {
     key: 'actions',
     title: '操作',
-    width: 200,
+    width: 280,
     fixed: 'right',
     cellRenderer: ({ rowData }) =>
       h('div', { class: 'actions-cell' }, [
+        h(ElButton, { link: true, type: 'primary', onClick: () => exportWordRecordings(rowData) }, () => '下载录音'),
         h(ElButton, { link: true, type: 'primary', onClick: () => openEdit(rowData) }, () => '编辑'),
         h(ElButton, { link: true, type: 'warning', onClick: () => openMerge(rowData) }, () => '合并'),
         h(ElButton, { link: true, type: 'danger', onClick: () => remove(rowData) }, () => '删除')
@@ -239,6 +243,32 @@ function reset() {
   filterStatus.value = ''
   page.value = 1
   load()
+}
+
+/** 导出当前筛选下的词条清单 CSV（含采集难度/通过率/驳回率） */
+async function exportWords() {
+  const params = new URLSearchParams()
+  if (keyword.value) params.set('keyword', keyword.value)
+  if (filterStatus.value) params.set('status', filterStatus.value)
+  const [p, c, d] = filterRegion.value || []
+  if (p) params.set('province_code', p)
+  if (c) params.set('city_code', c)
+  if (d) params.set('district_code', d)
+  const qs = params.toString()
+  await downloadFile(
+    qs ? `/api/words/export?${qs}` : '/api/words/export',
+    `words_manifest_${Date.now()}.csv`,
+    exporting
+  )
+}
+
+/** 下载某词条全部录音 ZIP（含驳回/待审） */
+async function exportWordRecordings(row) {
+  await downloadFile(
+    `/api/words/${row.id}/recordings/export`,
+    `word_${row.id}_recordings_${Date.now()}.zip`,
+    null // 行内操作不显 spinner
+  )
 }
 
 /** 启用/禁用词条开关 */

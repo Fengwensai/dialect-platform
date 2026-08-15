@@ -12,8 +12,12 @@ speakers 列表用 device_id 前缀 keyword 锁定种子子集。
 依赖：httpx（fastapi.testclient）。
 用法: ./.venv/Scripts/python.exe scripts/verify_dashboard.py
 """
+import csv
+import io
 import os
+import struct
 import sys
+import zipfile
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -21,6 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import func  # noqa: E402
 
+from app.core.config import settings  # noqa: E402
 from app.core.security import create_access_token, hash_password  # noqa: E402
 from app.db import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
@@ -515,6 +520,125 @@ def main():
               f"{dh['items']}")
         r = c.get("/api/dashboard/rejection-reasons")
         check("未登录 rejection-reasons → 401", r.status_code == 401, str(r.status_code))
+
+        # ================= 导出增强（后台完善 5） =================
+        # 为录音落真实音频文件（audio_url=verify/dash.wav → MEDIA_ROOT/verify/dash.wav），
+        # 让 ZIP 导出能读到字节、manifest 标 audio_present=1；块内 finally 清理。
+        audio_rel = "verify/dash.wav"
+        audio_abs = os.path.join(settings.MEDIA_ROOT, audio_rel.removeprefix("/media/"))
+        os.makedirs(os.path.dirname(audio_abs), exist_ok=True)
+        samples = b"\x00\x00" * 800  # 16kHz 单声道 16bit 静音 800ms
+        wav_bytes = (
+            struct.pack("<4sI4s4sIHHIIHH4sI", b"RIFF", 36 + len(samples), b"WAVE",
+                        b"fmt ", 16, 1, 1, 16000, 32000, 2, 16, b"data", len(samples))
+            + samples
+        )
+        with open(audio_abs, "wb") as f:
+            f.write(wav_bytes)
+
+        def parse_csv_bytes(resp_bytes):
+            return list(csv.DictReader(io.StringIO(resp_bytes.decode("utf-8-sig"))))
+
+        try:
+            # —— 词条清单 CSV（含难度/通过率）——
+            r = c.get("/api/words/export", headers=SUPER, params={"keyword": "看板"})
+            words_csv = parse_csv_bytes(r.content)
+            by_content = {row["词条内容"]: row for row in words_csv}
+            hb1_csv = by_content.get("看板河北词1", {})
+            check("词条清单 CSV 200 且只含 VFY-DASH 5 词",
+                  r.status_code == 200 and len(words_csv) == 5, f"{r.status_code} n={len(words_csv)}")
+            check("CSV 河北词1 难度列正确（录音2/通过1/驳回1/各率0.5）",
+                  hb1_csv.get("录音总数") == "2" and hb1_csv.get("通过") == "1"
+                  and hb1_csv.get("驳回") == "1" and float(hb1_csv.get("通过率", "x")) == 0.5
+                  and float(hb1_csv.get("驳回率", "x")) == 0.5 and hb1_csv.get("状态") == "启用",
+                  f"{hb1_csv}")
+            check("CSV 行政区划解析为中文（省市区名非空）",
+                  bool(hb1_csv.get("行政区划")) and "None" not in hb1_csv.get("行政区划", ""),
+                  f"{hb1_csv.get('行政区划')}")
+            pos = {row["词条内容"]: i for i, row in enumerate(words_csv)}
+            check("CSV 默认按录音总数降序（HB1/BJ1 在 HB2/BJ2/HB3 前）",
+                  pos["看板河北词1"] < pos["看板河北词2"] < pos["看板河北词3"]
+                  and pos["看板北京词1"] < pos["看板北京词2"],
+                  f"{pos}")
+            r = c.get("/api/words/export", headers=HB, params={"keyword": "看板"})
+            hb_words = parse_csv_bytes(r.content)
+            check("省管词条清单仅本省 3 词（无北京）",
+                  r.status_code == 200 and len(hb_words) == 3
+                  and not any("北京" in row["词条内容"] for row in hb_words),
+                  f"n={len(hb_words)}")
+            r = c.get("/api/words/export", headers=SUPER, params={"sort_by": "bad"})
+            check("词条清单非法 sort_by → 422", r.status_code == 422, str(r.status_code))
+            r = c.get("/api/words/export")
+            check("未登录词条清单 → 401", r.status_code == 401, str(r.status_code))
+
+            # —— 某词条全部录音 ZIP（含驳回）——
+            r = c.get(f"/api/words/{w_hb1.id}/recordings/export", headers=SUPER)
+            zf = zipfile.ZipFile(io.BytesIO(r.content))
+            names = zf.namelist()
+            w_audios = [n for n in names if n.startswith(f"audios/{HB_PROV}/word_{w_hb1.id}/")]
+            w_manifest = list(csv.DictReader(
+                io.StringIO(zf.read("manifest.csv").decode("utf-8-sig"))))
+            check("词条 ZIP 200 + 音频 2 条 + manifest 2 行",
+                  r.status_code == 200 and len(w_audios) == 2 and len(w_manifest) == 2,
+                  f"{r.status_code} audios={len(w_audios)} rows={len(w_manifest)} names={names}")
+            w_st = {row["status"] for row in w_manifest}
+            check("词条 ZIP manifest 含 approved/rejected 且 audio_present=1",
+                  w_st == {"approved", "rejected"}
+                  and all(row["audio_present"] == "1" and row["audio_file"] for row in w_manifest),
+                  f"st={w_st} {w_manifest}")
+            r = c.get(f"/api/words/{w_hb1.id}/recordings/export",
+                      headers=SUPER, params={"status": "rejected"})
+            rj = list(csv.DictReader(
+                io.StringIO(zipfile.ZipFile(io.BytesIO(r.content))
+                            .read("manifest.csv").decode("utf-8-sig"))))
+            check("词条 ZIP 按状态过滤 → 仅 1 条驳回",
+                  r.status_code == 200 and len(rj) == 1 and rj[0]["status"] == "rejected",
+                  f"{rj}")
+            r = c.get(f"/api/words/{w_hb3.id}/recordings/export", headers=SUPER)
+            check("无录音词条 ZIP → 400", r.status_code == 400, str(r.status_code))
+            r = c.get("/api/words/999999/recordings/export", headers=SUPER)
+            check("不存在词条 ZIP → 404", r.status_code == 404, str(r.status_code))
+            r = c.get(f"/api/words/{w_bj1.id}/recordings/export", headers=HB)
+            check("省管下载北京词条 ZIP → 403", r.status_code == 403, str(r.status_code))
+            r = c.get(f"/api/words/{w_hb1.id}/recordings/export",
+                      headers=SUPER, params={"status": "bad"})
+            check("词条 ZIP 非法 status → 422", r.status_code == 422, str(r.status_code))
+            r = c.get(f"/api/words/{w_hb1.id}/recordings/export")
+            check("未登录词条 ZIP → 401", r.status_code == 401, str(r.status_code))
+
+            # —— 某发音人全部录音 ZIP（含音频）——
+            r = c.get(f"/api/speakers/{sp_hb1.id}/recordings/export",
+                      headers=SUPER, params={"format": "zip"})
+            zf = zipfile.ZipFile(io.BytesIO(r.content))
+            s_audios = [n for n in zf.namelist()
+                        if n.startswith(f"audios/{HB_PROV}/speaker_{sp_hb1.id}/")]
+            s_manifest = list(csv.DictReader(
+                io.StringIO(zf.read("manifest.csv").decode("utf-8-sig"))))
+            check("发音人 ZIP 200 + 音频 2 条 + manifest 2 行（approved/pending）",
+                  r.status_code == 200 and len(s_audios) == 2 and len(s_manifest) == 2
+                  and {row["status"] for row in s_manifest} == {"approved", "pending"},
+                  f"{r.status_code} audios={len(s_audios)} rows={len(s_manifest)}")
+            r = c.get(f"/api/speakers/{sp_hb1.id}/recordings/export",
+                      headers=SUPER, params={"format": "bad"})
+            check("发音人导出非法 format → 422", r.status_code == 422, str(r.status_code))
+            r = c.get("/api/speakers/999999/recordings/export",
+                      headers=SUPER, params={"format": "zip"})
+            check("不存在发音人 ZIP → 404", r.status_code == 404, str(r.status_code))
+            r = c.get(f"/api/speakers/{sp_hb1.id}/recordings/export", params={"format": "zip"})
+            check("未登录发音人 ZIP → 401", r.status_code == 401, str(r.status_code))
+
+            # —— 原 CSV 明细分支不受影响（format 缺省=csv）——
+            r = c.get(f"/api/speakers/{sp_hb1.id}/recordings/export", headers=SUPER)
+            check("发音人 CSV 明细缺省 format=csv 正常",
+                  r.status_code == 200 and r.headers["content-type"].startswith("text/csv"),
+                  f"{r.status_code} {r.headers.get('content-type')}")
+        finally:
+            if os.path.exists(audio_abs):
+                os.remove(audio_abs)
+            try:
+                os.rmdir(os.path.dirname(audio_abs))  # 空目录才删，非空忽略
+            except OSError:
+                pass
 
         # ================= 发音人质量预警（后台完善 3） =================
         # A：12 条已审核（2 通过 + 10 驳回）→ 通过率 16.7% <40% 且已审 12≥10 → 预警

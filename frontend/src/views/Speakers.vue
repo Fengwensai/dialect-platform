@@ -225,7 +225,8 @@
             </el-select>
             <el-button type="primary" size="small" @click="detailPage = 1; loadDetail()">查询</el-button>
             <el-button size="small" @click="resetDetail">重置</el-button>
-            <el-button type="success" size="small" :loading="detailExporting" @click="exportDetail">导出</el-button>
+            <el-button type="success" size="small" :loading="detailExporting" @click="exportDetail">导出明细</el-button>
+            <el-button type="success" size="small" :loading="detailZipExporting" @click="exportDetailZip">导出录音(ZIP)</el-button>
             <span class="total">共 {{ detailTotal }} 条</span>
           </div>
 
@@ -284,6 +285,7 @@ import { Search, RefreshLeft, Download } from '@element-plus/icons-vue'
 import request from '../api/request'
 import { useAuthStore } from '../stores/auth'
 import { useRegionStore } from '../stores/regions'
+import { downloadFile } from '../utils/download'
 
 const GENDER_LABELS = { male: '男', female: '女', other: '其他' }
 const AGE_LABELS = { under18: '<18', age18_30: '18-30', age31_45: '31-45', age46_60: '46-60', over60: '>60' }
@@ -325,6 +327,7 @@ const detailTaskId = ref(null)
 const detailStatus = ref('')
 const exporting = ref(false)
 const detailExporting = ref(false)
+const detailZipExporting = ref(false)
 
 const statusMeta = {
   pending: { type: 'warning', label: '待审核' },
@@ -523,45 +526,6 @@ function resetDetail() {
   loadDetail()
 }
 
-/**
- * 通用 CSV 下载：原生 fetch（axios 拦截器会剥掉 headers，拿不到文件名），
- * 从 Content-Disposition 解析真实文件名，触发浏览器下载。
- * @returns {Promise<boolean>} 是否导出成功
- */
-async function downloadCsv(url, fallbackName, exportingRef) {
-  const token = localStorage.getItem('token') || ''
-  exportingRef.value = true
-  try {
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-    if (!resp.ok) {
-      let msg = '导出失败'
-      try {
-        const data = await resp.json()
-        if (data?.detail) msg = data.detail
-      } catch (e) { /* 非 JSON 错误体，用默认提示 */ }
-      ElMessage.error(msg)
-      return false
-    }
-    const blob = await resp.blob()
-    let filename = fallbackName
-    const cd = resp.headers.get('Content-Disposition') || ''
-    const m = cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="?([^";]+)"?/i)
-    if (m && m[1]) filename = decodeURIComponent(m[1])
-    const urlObj = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = urlObj
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(urlObj)
-    ElMessage.success('已导出')
-    return true
-  } finally {
-    exportingRef.value = false
-  }
-}
-
 /** 导出发音人时长汇总 CSV（遵循当前筛选条件） */
 async function exportDurations() {
   const params = new URLSearchParams()
@@ -570,7 +534,7 @@ async function exportDurations() {
   if (filterGender.value) params.set('gender', filterGender.value)
   if (filterAgeBracket.value) params.set('age_bracket', filterAgeBracket.value)
   const qs = params.toString()
-  await downloadCsv(
+  await downloadFile(
     qs ? `/api/speakers/export?${qs}` : '/api/speakers/export',
     `speakers_duration_${Date.now()}.csv`,
     exporting
@@ -585,10 +549,25 @@ async function exportDetail() {
   if (detailStatus.value) params.set('status', detailStatus.value)
   const qs = params.toString()
   const base = `/api/speakers/${detailSpeaker.value.id}/recordings/export`
-  await downloadCsv(
+  await downloadFile(
     qs ? `${base}?${qs}` : base,
     `speaker_${detailSpeaker.value.id}_recordings_${Date.now()}.csv`,
     detailExporting
+  )
+}
+
+/** 导出发音人全部录音 ZIP（含驳回/待审，遵循当前任务/状态筛选） */
+async function exportDetailZip() {
+  if (!detailSpeaker.value) return
+  const params = new URLSearchParams()
+  if (detailTaskId.value) params.set('task_id', detailTaskId.value)
+  if (detailStatus.value) params.set('status', detailStatus.value)
+  params.set('format', 'zip')
+  const qs = params.toString()
+  await downloadFile(
+    `/api/speakers/${detailSpeaker.value.id}/recordings/export?${qs}`,
+    `speaker_${detailSpeaker.value.id}_recordings_${Date.now()}.zip`,
+    detailZipExporting
   )
 }
 

@@ -286,6 +286,40 @@ JWT（HS256）内包含：
 
 **错误**：`404 {"detail": "词条不存在"}`、`403 {"detail": "无权操作其他省份词条"}`
 
+### 4.4 导出词条清单 CSV（后台完善 5）
+
+`GET /api/words/export`
+
+筛选参数与 4.1 一致（`province_code` / `city_code` / `district_code` / `keyword` / `status`），但**不分页**，全量导出为 CSV（`utf-8-sig` BOM，Excel 直接打开）。难度口径与看板「难采集词条」一致（按当前 `rejected` 计数近似「反复被驳回」）。
+
+| 参数 | 说明 |
+|---|---|
+| `sort_by` | 排序：`recording` 录音总数多优先（默认）/ `reject` 驳回率 / `approval` 通过率；非法值 422 |
+
+**响应 200**：`text/csv`，每行一个词条，列：`编号 / 词条内容 / 方言点 / 例句 / 发音提示 / 行政区划(省市区中文名) / 状态(启用·禁用) / 录音总数 / 待审 / 通过 / 驳回 / 通过率 / 驳回率`（通过率=通过/(通过+驳回)，0 时为 0）。
+
+文件名：`words_manifest_YYYYMMDD_HHMMSS.csv`。
+
+**省管理员**：范围钳制为本省，与 4.1 相同。
+
+**错误**：`401` 未登录；非法 `sort_by` `422`。
+
+### 4.5 导出某词条全部录音 ZIP（后台完善 5）
+
+`GET /api/words/{word_id}/recordings/export`
+
+把单个词条下的**全部录音**（含驳回/待审）打包为 ZIP = `audios/{省}/word_{word_id}/`（音频原文件）+ `manifest.csv`（`EXPORT_COLUMNS` 全列 + `status`，`utf-8-sig`）。
+
+| 参数 | 说明 |
+|---|---|
+| `status` | 可选按状态过滤：`pending` / `approved` / `rejected`；非法值 422 |
+
+**响应 200**：`application/zip`，分块流式（内存峰值 ≈ 单条录音大小）。缺音频文件不抛错，`manifest` 对应行 `audio_present=0`。
+
+文件名：`word_{word_id}_recordings_YYYYMMDD_HHMMSS.zip`。
+
+**错误**：`404` 词条不存在、`403` 省管理员跨省、`400` 该词条暂无录音、`401` 未登录。
+
 ---
 
 ## 5. regions — 行政区划
@@ -730,17 +764,21 @@ JWT（HS256）内包含：
 
 **错误**：`401` 未登录；非法筛选值 `422`。
 
-### 8.5 导出发音人录音明细 CSV
+### 8.5 导出发音人录音明细 CSV / ZIP（后台完善 5）
 
 `GET /api/speakers/{speaker_id}/recordings/export`
 
-把单个发音人的录音明细导出为 CSV（`utf-8-sig`）。全量导出，遵循与 8.3 相同的 `status` / `task_id` 筛选。
+把单个发音人的录音**明细**（CSV）或**明细+音频原文件**（ZIP）导出。全量导出，遵循与 8.3 相同的 `status` / `task_id` 筛选。
 
-**响应 200**：`text/csv`，每行一条录音，列：`录音ID / 任务 / 词条编码 / 词条内容 / 状态(中文) / 时长_ms / 文件大小_B / 审核备注 / 审核时间 / 提交时间 / 音频路径`。
+| 参数 | 说明 |
+|---|---|
+| `format` | `csv` 明细（默认）/ `zip` 明细+音频打包；非法值 422 |
 
-文件名：`speaker_{speaker_id}_recordings_YYYYMMDD_HHMMSS.csv`。
+**响应 200（`format=csv`）**：`text/csv`，每行一条录音，列：`录音ID / 任务 / 词条编码 / 词条内容 / 状态(中文) / 时长_ms / 文件大小_B / 审核备注 / 审核时间 / 提交时间 / 音频路径`。文件名：`speaker_{speaker_id}_recordings_YYYYMMDD_HHMMSS.csv`。
 
-**错误**：`404` 发音人不存在、`403` 省管理员跨省、`401` 未登录。
+**响应 200（`format=zip`）**：`application/zip`，`audios/{省}/speaker_{speaker_id}/` + `manifest.csv`（全列 + `status`），分块流式；缺音频 `audio_present=0`。文件名：`speaker_{speaker_id}_recordings_YYYYMMDD_HHMMSS.zip`。
+
+**错误**：`404` 发音人不存在、`403` 省管理员跨省、`400` 该发音人暂无录音（仅 zip 分支）、`401` 未登录。
 
 ### 8.6 删除发音人
 

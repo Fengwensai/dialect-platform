@@ -358,11 +358,11 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
 import { Search, RefreshLeft, Download, Refresh } from '@element-plus/icons-vue'
 import request from '../api/request'
 import { useAuthStore } from '../stores/auth'
 import { useRegionStore } from '../stores/regions'
+import { downloadFile } from '../utils/download'
 
 const GENDER_LABELS = { male: '男', female: '女', other: '其他' }
 const AGE_LABELS = { under18: '<18', age18_30: '18-30', age31_45: '31-45', age46_60: '46-60', over60: '>60' }
@@ -592,41 +592,6 @@ function resetDetail() {
   loadRecordings()
 }
 
-/** 通用 CSV 下载：原生 fetch（axios 拦截器会剥掉 headers，拿不到文件名） */
-async function downloadCsv(url, fallbackName, exportingRef) {
-  const token = localStorage.getItem('token') || ''
-  exportingRef.value = true
-  try {
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-    if (!resp.ok) {
-      let msg = '导出失败'
-      try {
-        const data = await resp.json()
-        if (data?.detail) msg = data.detail
-      } catch (e) { /* 非 JSON 错误体 */ }
-      ElMessage.error(msg)
-      return false
-    }
-    const blob = await resp.blob()
-    let filename = fallbackName
-    const cd = resp.headers.get('Content-Disposition') || ''
-    const m = cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="?([^";]+)"?/i)
-    if (m && m[1]) filename = decodeURIComponent(m[1])
-    const urlObj = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = urlObj
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(urlObj)
-    ElMessage.success('已导出')
-    return true
-  } finally {
-    exportingRef.value = false
-  }
-}
-
 /** 导出发音人时长汇总 CSV（遵循当前筛选） */
 async function exportDurations() {
   const params = new URLSearchParams()
@@ -636,7 +601,7 @@ async function exportDurations() {
   if (filterAgeBracket.value) params.set('age_bracket', filterAgeBracket.value)
   if (filterTeam.value) params.set('team_code', filterTeam.value)
   const qs = params.toString()
-  await downloadCsv(
+  await downloadFile(
     qs ? `/api/speakers/export?${qs}` : '/api/speakers/export',
     `speakers_duration_${Date.now()}.csv`,
     exporting
@@ -651,7 +616,7 @@ async function exportDetail() {
   if (detailStatus.value) params.set('status', detailStatus.value)
   const qs = params.toString()
   const base = `/api/speakers/${detailSpeaker.value.id}/recordings/export`
-  await downloadCsv(
+  await downloadFile(
     qs ? `${base}?${qs}` : base,
     `speaker_${detailSpeaker.value.id}_recordings_${Date.now()}.csv`,
     detailExporting
