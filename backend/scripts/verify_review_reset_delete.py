@@ -103,7 +103,7 @@ def main():
             return r
 
         r1 = rec(sp_hb1, task_hb, hb_w1, "rejected", extra={
-            "review_note": "口音不标准", "reviewed_by": 1, "reviewed_at": now,
+            "review_note": "口音不标准", "reject_reasons": "misread", "reviewed_by": 1, "reviewed_at": now,
             "mandarin_transcript": "测试普通话", "dialect_transcript": "ts/ts/"})
         r2 = rec(sp_hb1, task_hb, hb_w2, "pending")
         r3 = rec(sp_hb2, task_hb, hb_w1, "approved", extra={"reviewed_by": 1, "reviewed_at": now})
@@ -124,9 +124,10 @@ def main():
         db.refresh(r1)
         check("重置 rejected → pending", r.status_code == 200 and r.json()["status"] == "pending",
               str(r.status_code) + " " + r.text[:80])
-        check("重置清空判决痕迹（note/审核人/时间）",
-              r1.review_note is None and r1.reviewed_by is None and r1.reviewed_at is None,
-              f"note={r1.review_note}")
+        check("重置清空判决痕迹（note/原因/审核人/时间）",
+              r1.review_note is None and r1.reject_reasons is None
+              and r1.reviewed_by is None and r1.reviewed_at is None,
+              f"note={r1.review_note} reasons={r1.reject_reasons}")
         check("重置保留转写",
               r1.mandarin_transcript == "测试普通话" and r1.dialect_transcript == "ts/ts/",
               f"{r1.mandarin_transcript} / {r1.dialect_transcript}")

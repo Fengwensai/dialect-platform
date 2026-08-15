@@ -200,6 +200,14 @@ def main():
         db.commit()
         check("直写录音 5 条", True)
 
+        # 给那条河北驳回加结构化原因（后台完善 2）
+        rej = db.query(Recording).filter(
+            Recording.speaker_id == sp_hb2.id, Recording.task_id == task_hb.id,
+            Recording.word_id == w_hb1.id,
+        ).first()
+        rej.reject_reasons = "noise,misread"
+        db.commit()
+
         # —— 5. 领取记录：sp_hb1 领 hb1(已录)+hb3(未录) ——
         db.add(TaskClaim(task_id=task_hb.id, word_id=w_hb1.id, speaker_id=sp_hb1.id,
                          claimed_at=now - timedelta(days=1)))
@@ -474,6 +482,39 @@ def main():
         # —— 未登录 401 ——
         r = c.get("/api/dashboard/summary")
         check("未登录 summary → 401", r.status_code == 401, str(r.status_code))
+
+        # ================= dashboard/rejection-reasons（驳回原因分布，后台完善 2） =================
+        # 既有河北驳回 noise,misread；再补一条北京驳回（无原因）→ 测未标注桶 + 省域钳制
+        db.add(Recording(task_id=task_bj.id, word_id=w_bj1.id, speaker_id=sp_bj.id,
+                         audio_url="verify/dash.wav", audio_duration=2500, file_size=1000,
+                         status="rejected", content_check_status="media_passed",
+                         created_at=now + timedelta(minutes=2)))
+        db.commit()
+
+        r = c.get("/api/dashboard/rejection-reasons", headers=SUPER)
+        d = r.json()
+        rr = {x["reason"]: x for x in d["items"]}
+        check("驳回原因分布 200 + total=2", r.status_code == 200 and d["total"] == 2,
+              str(r.status_code) + " " + str(d))
+        check("原因计数（noise/misread/unknown 各 1）",
+              rr.get("noise", {}).get("count") == 1
+              and rr.get("misread", {}).get("count") == 1
+              and rr.get("unknown", {}).get("count") == 1,
+              f"{d['items']}")
+        check("原因中文标签正确", rr["noise"]["label"] == "背景噪音" and rr["unknown"]["label"] == "未标注",
+              f"{rr.get('noise')} {rr.get('unknown')}")
+        check("items 按数量降序",
+              [x["count"] for x in d["items"]] == sorted([x["count"] for x in d["items"]], reverse=True),
+              f"{d['items']}")
+        r = c.get("/api/dashboard/rejection-reasons", headers=HB)
+        dh = r.json()
+        rrh = {x["reason"]: x for x in dh["items"]}
+        check("省管仅本省：total=1 且无 unknown（北京那条被排除）",
+              dh["total"] == 1 and "unknown" not in rrh
+              and rrh.get("noise", {}).get("count") == 1 and rrh.get("misread", {}).get("count") == 1,
+              f"{dh['items']}")
+        r = c.get("/api/dashboard/rejection-reasons")
+        check("未登录 rejection-reasons → 401", r.status_code == 401, str(r.status_code))
 
         cleanup(db)
         check("清理种子数据", True)

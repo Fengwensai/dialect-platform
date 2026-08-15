@@ -10,6 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..core.deps import get_current_admin
+from ..core.reject_reasons import LABELS as REJECT_REASON_LABELS
 from ..db import get_db
 from ..models.admin import AdminUser
 from ..models.recording import Recording
@@ -20,10 +21,12 @@ from ..models.task_claim import TaskClaim
 from ..models.word import WordLibrary
 from ..schemas.dashboard import (
     DashboardClaimOut,
+    DashboardRejectionReasons,
     DashboardSpeakerRow,
     DashboardSummary,
     DashboardTrends,
     DashboardWordDifficulty,
+    RejectionReasonRow,
     RegionBreakdownItem,
 )
 from .speakers import AGE_BRACKETS, GENDERS, _speaker_query
@@ -429,3 +432,43 @@ def dashboard_speaker_claims(
         )
         for c in claims
     ]
+
+
+@router.get("/rejection-reasons", response_model=DashboardRejectionReasons)
+def dashboard_rejection_reasons(
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """驳回原因分布：按固定原因聚合被驳回录音数，反哺任务投放。
+
+    reject_reasons 是逗号连接的多选 key → 不能 group_by，Python 端拆串计数；
+    NULL（旧数据或驳回时未选原因）计入「未标注」。省管理员钳制为本省。
+    """
+    scope = _province_scope(db, admin)
+    rec_q = db.query(Recording).join(Speaker, Recording.speaker_id == Speaker.id)
+    if scope:
+        rec_q = rec_q.filter(Speaker.province_code == scope)
+    reason_rows = (
+        rec_q.filter(Recording.status == "rejected")
+        .with_entities(Recording.reject_reasons)
+        .all()
+    )
+
+    counts: dict[str, int] = {}
+    for (r,) in reason_rows:
+        if r:  # 一条录音可能多选，逗号拆开逐个计数
+            for k in r.split(","):
+                counts[k] = counts.get(k, 0) + 1
+        else:
+            counts["unknown"] = counts.get("unknown", 0) + 1
+
+    def _label(k: str) -> str:
+        if k == "unknown":
+            return "未标注"
+        return REJECT_REASON_LABELS.get(k, k)
+
+    items = [
+        RejectionReasonRow(reason=k, label=_label(k), count=c)
+        for k, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+    return DashboardRejectionReasons(total=len(reason_rows), items=items)

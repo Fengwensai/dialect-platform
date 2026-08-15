@@ -362,6 +362,7 @@ async def upload_recording(
         existing.file_size = len(content)
         existing.status = "pending"
         existing.review_note = None
+        existing.reject_reasons = None  # 新音频覆盖旧驳回判决+原因
         existing.mandarin_transcript = None  # 新音频替换旧转写，需重填
         existing.dialect_transcript = None
         existing.quality_status = q_status

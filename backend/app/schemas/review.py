@@ -4,9 +4,10 @@ from pydantic import BaseModel
 
 
 class VerdictRequest(BaseModel):
-    """审核判决：approved=True 通过，False 驳回；note 为驳回原因（可空）。"""
+    """审核判决：approved=True 通过，False 驳回；reasons 为固定原因 key 列表（可空），note 为备注。"""
 
     approved: bool
+    reasons: list[str] | None = None
     note: str | None = None
 
 
@@ -15,6 +16,7 @@ class BatchVerdictRequest(BaseModel):
 
     recording_ids: list[int]
     approved: bool
+    reasons: list[str] | None = None
     note: str | None = None
 
 
@@ -62,6 +64,7 @@ class ReviewRecordingOut(BaseModel):
     dialect_transcript: str | None = None
     status: str
     review_note: str | None = None
+    reject_reasons: str | None = None  # 驳回原因 key 逗号连接（如 noise,misread）；旧数据为 None
     reviewed_by: int | None = None
     reviewed_by_name: str | None = None
     created_at: datetime

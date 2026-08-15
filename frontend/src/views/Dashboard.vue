@@ -97,6 +97,34 @@
       />
     </el-card>
 
+    <!-- ===== 驳回原因分布 ===== -->
+    <el-card shadow="never" style="margin-bottom: 12px">
+      <template #header><b>驳回原因分布</b></template>
+      <el-table :data="rejectReasons?.items || []" v-loading="rejectReasonsLoading" border stripe>
+        <el-table-column label="原因" min-width="140">
+          <template #default="{ row }">
+            <el-tag :type="row.reason === 'unknown' ? 'info' : 'danger'" size="small">{{ row.label }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="数量" width="90">
+          <template #default="{ row }"><span class="num-bad">{{ row.count }}</span></template>
+        </el-table-column>
+        <el-table-column label="占比" min-width="220">
+          <template #default="{ row }">
+            <el-progress
+              :percentage="rejectReasons?.total ? Math.round((row.count / rejectReasons.total) * 100) : 0"
+              :stroke-width="14"
+              :format="() => (rejectReasons?.total ? pct(row.count / rejectReasons.total) : '-')"
+            />
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-if="rejectReasons?.total" class="rr-total">
+        统计范围：{{ rejectReasons.total }} 条已驳回录音（省域管理员仅统计本省）；未勾选原因的计入「未标注」
+      </div>
+      <div v-else class="rr-total">暂无已驳回录音</div>
+    </el-card>
+
     <!-- ===== 发音人数据表 ===== -->
     <el-card shadow="never">
       <template #header><b>发音人数据（{{ total }} 人）</b></template>
@@ -356,6 +384,10 @@ const wordPageSize = ref(20)
 const wordSort = ref('reject')
 const wordLoading = ref(false)
 
+// —— 驳回原因分布（后台完善 2）——
+const rejectReasons = ref(null)
+const rejectReasonsLoading = ref(false)
+
 // —— 发音人表 ——
 const items = ref([])
 const total = ref(0)
@@ -465,6 +497,15 @@ async function loadWordDifficulty() {
     wordTotal.value = data.total
   } finally {
     wordLoading.value = false
+  }
+}
+
+async function loadRejectReasons() {
+  rejectReasonsLoading.value = true
+  try {
+    rejectReasons.value = await request.get('/dashboard/rejection-reasons')
+  } finally {
+    rejectReasonsLoading.value = false
   }
 }
 
@@ -614,6 +655,7 @@ onMounted(async () => {
   loadSummary()
   loadTrends()
   loadWordDifficulty()
+  loadRejectReasons()
   loadSpeakers()
 })
 </script>
@@ -624,6 +666,11 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
+}
+.rr-total {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #909399;
 }
 .stats-row {
   display: flex;

@@ -302,6 +302,21 @@ def main():
         check("me/export CSV 含 2 行", r.status_code == 200 and row_n == 2,
               f"status={r.status_code} rows={row_n}")
 
+        # —— 12.5 重录被驳回录音：旧驳回原因/备注应清空、状态回待审（后台完善 2）——
+        rdb = db.get(Recording, rec2)
+        rdb.reject_reasons = "noise"
+        rdb.review_note = "音质不佳需重录"
+        db.commit()
+        rr = requests.post(BASE + "/api/mp/recordings", headers=SP,
+                           data={"task_id": str(task_id), "word_id": str(w2.id),
+                                 "duration": "1000", "device_id": DEVICE},
+                           files={"file": ("vfy.wav", wav, "audio/wav")}, timeout=15)
+        db.refresh(rdb)
+        check("重录被驳回录音 → 状态回待审 + 原因/备注清空",
+              rr.status_code == 200 and rdb.status == "pending"
+              and rdb.reject_reasons is None and rdb.review_note is None,
+              str(rr.status_code) + " " + str(j(rr))[:80] + f" reasons={rdb.reject_reasons}")
+
     finally:
         cleanup(db)
         db.close()

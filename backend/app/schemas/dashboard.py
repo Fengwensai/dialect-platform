@@ -92,3 +92,18 @@ class DashboardWordDifficulty(BaseModel):
     rejected: int = 0
     approval_rate: float = 0.0  # approved / (approved + rejected)
     reject_rate: float = 0.0  # rejected / (approved + rejected)
+
+
+class RejectionReasonRow(BaseModel):
+    """驳回原因分布一行：reason 为 key（unknown=未标注），label 为中文，count 为驳回录音数。"""
+
+    reason: str
+    label: str
+    count: int
+
+
+class DashboardRejectionReasons(BaseModel):
+    """驳回原因分布（省管理员自动钳制为本省）。total = 分布范围内驳回录音总数。"""
+
+    total: int
+    items: list[RejectionReasonRow]

@@ -20,6 +20,8 @@ from sqlalchemy.orm import Session
 
 from ..core.config import settings
 from ..core.deps import get_current_admin
+from ..core.reject_reasons import LABELS as REJECT_REASON_LABELS
+from ..core.reject_reasons import VALID_REJECT_REASONS
 from ..db import get_db
 from ..models.admin import AdminUser
 from ..models.recording import Recording
@@ -62,6 +64,29 @@ def _scope_query(db: Session, admin: AdminUser, q):
     return q
 
 
+def _store_reasons(approved: bool, reasons: list[str] | None) -> str | None:
+    """把驳回原因 key 列表整理成逗号串落库。
+
+    - 通过（approved=True）或未选原因 → None（不存原因）。
+    - 非法 key → 422（风格同 VALID_STATUS 校验）。
+    - 合法则去重保序，逗号连接（如 "noise,misread"）。
+    """
+    if approved or not reasons:
+        return None
+    bad = [r for r in reasons if r not in VALID_REJECT_REASONS]
+    if bad:
+        raise HTTPException(status_code=422, detail=f"无效驳回原因: {bad}")
+    return ",".join(dict.fromkeys(reasons))
+
+
+def _reject_reason_summary(reasons: str | None) -> str:
+    """把逗号串原因转审计日志用的中文串（如「背景噪音,念错」），空返回空串。"""
+    if not reasons:
+        return ""
+    labels = [REJECT_REASON_LABELS.get(k, k) for k in reasons.split(",")]
+    return f"（{'、'.join(labels)}）"
+
+
 def _enrich(rec: Recording, db: Session) -> ReviewRecordingOut:
     """把一条录音富化成带展示字段的 out（list 与 verdict 复用）。"""
     task = db.get(TaskBatch, rec.task_id)
@@ -95,6 +120,7 @@ def _enrich(rec: Recording, db: Session) -> ReviewRecordingOut:
         dialect_transcript=rec.dialect_transcript,
         status=rec.status,
         review_note=rec.review_note,
+        reject_reasons=rec.reject_reasons,
         reviewed_by=rec.reviewed_by,
         reviewed_by_name=reviewer.name if reviewer else None,
         created_at=rec.created_at,
@@ -202,9 +228,12 @@ def review_verdict(
 
     rec.status = "approved" if body.approved else "rejected"
     rec.review_note = body.note
+    rec.reject_reasons = _store_reasons(body.approved, body.reasons)
     rec.reviewed_by = admin.id
     rec.reviewed_at = datetime.now(timezone.utc)
     word = db.get(WordLibrary, rec.word_id)
+    reason_summary = _reject_reason_summary(rec.reject_reasons)
+    note_suffix = f"（{body.note}）" if body.note else reason_summary
     log_admin_action(
         db,
         admin,
@@ -212,7 +241,7 @@ def review_verdict(
         "recording",
         rec.id,
         summary=f"录音 #{rec.id}「{word.content if word else rec.word_id}」{'通过' if body.approved else '驳回'}"
-        + (f"（{body.note}）" if body.note else ""),
+        + note_suffix,
         ip=rate_limit.client_ip(request),
     )
     db.commit()
@@ -260,6 +289,7 @@ def batch_review_verdict(
             continue  # 已审过：跳过，不改判
         rec.status = "approved" if body.approved else "rejected"
         rec.review_note = body.note
+        rec.reject_reasons = _store_reasons(body.approved, body.reasons)
         rec.reviewed_by = admin.id
         rec.reviewed_at = now
         processed += 1
@@ -306,6 +336,7 @@ def reset_recording_to_pending(
         raise HTTPException(status_code=400, detail="仅已驳回的录音可重置为待审")
     rec.status = "pending"
     rec.review_note = None
+    rec.reject_reasons = None
     rec.reviewed_by = None
     rec.reviewed_at = None
     log_admin_action(

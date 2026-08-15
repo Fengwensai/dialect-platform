@@ -167,16 +167,18 @@ def main():
         db.refresh(r1)
         check("r1 已通过", r1.status == "approved" and r1.reviewed_by == 1, f"{r1.status}")
 
-        # mixed：r1(已通过) + r4(pending) 驳回 → processed=1 / skipped=1，note 落库
+        # mixed：r1(已通过) + r4(pending) 驳回 → processed=1 / skipped=1，note+原因落库（重复 key 去重）
         r = c.post("/api/review/batch-verdict", headers=SUPER,
-                   json={"recording_ids": [r1.id, r4.id], "approved": False, "note": "噪音大"})
+                   json={"recording_ids": [r1.id, r4.id], "approved": False,
+                         "reasons": ["noise", "misread", "noise"], "note": "噪音大"})
         body = r.json()
         check("mixed 批量驳回 → processed=1 skipped=1",
               r.status_code == 200 and body["processed"] == 1 and body["skipped"] == 1,
               str(r.status_code) + " " + str(body))
         db.refresh(r4)
-        check("r4 已驳回 + note 落库", r4.status == "rejected" and r4.review_note == "噪音大",
-              f"{r4.status} note={r4.review_note}")
+        check("r4 已驳回 + note/原因 落库（去重）",
+              r4.status == "rejected" and r4.review_note == "噪音大" and r4.reject_reasons == "noise,misread",
+              f"{r4.status} note={r4.review_note} reasons={r4.reject_reasons}")
 
         # 全已审 → 400
         r = c.post("/api/review/batch-verdict", headers=SUPER,
@@ -189,6 +191,30 @@ def main():
         # 不存在 → 404
         r = c.post("/api/review/batch-verdict", headers=SUPER, json={"recording_ids": [999999], "approved": True})
         check("不存在的录音 → 404", r.status_code == 404, str(r.status_code))
+
+        # —— 单条驳回 + 原因（后台完善 2）——
+        r9 = rec(sp_hb1, task_hb, hb_w2, "pending", 9000, now + timedelta(hours=2))
+        db.commit()
+        r = c.post(f"/api/review/recordings/{r9.id}/verdict", headers=SUPER,
+                   json={"approved": False, "reasons": ["too_quiet"], "note": "太轻"})
+        body = r.json()
+        check("单条驳回带原因 → 200 + 字段透出",
+              r.status_code == 200 and body["status"] == "rejected" and body["reject_reasons"] == "too_quiet"
+              and body["review_note"] == "太轻",
+              str(r.status_code) + " " + r.text[:120])
+        db.refresh(r9)
+        check("r9 原因落库", r9.reject_reasons == "too_quiet", f"{r9.reject_reasons}")
+        # 通过时不带原因
+        r10 = rec(sp_hb1, task_hb, hb_w1, "pending", 9500, now + timedelta(hours=2))
+        db.commit()
+        r = c.post(f"/api/review/recordings/{r10.id}/verdict", headers=SUPER, json={"approved": True})
+        db.refresh(r10)
+        check("通过时 reasons 不落库", r.status_code == 200 and r10.reject_reasons is None,
+              f"reasons={r10.reject_reasons}")
+        # 非法原因 → 422
+        r = c.post(f"/api/review/recordings/{r9.id}/verdict", headers=SUPER,
+                   json={"approved": False, "reasons": ["bogus"]})
+        check("非法原因 → 422", r.status_code == 422 and "bogus" in r.text, str(r.status_code) + " " + r.text[:100])
 
         # —— 省管理员：新建 2 条 pending（河北/北京各一）验证越省跳过 ——
         r7 = rec(sp_hb1, task_hb, hb_w1, "pending", 7000, now + timedelta(hours=1))

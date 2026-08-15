@@ -67,7 +67,7 @@
             <div class="kh-row"><span class="kbd">→</span><span class="kbd">N</span><span>下一单</span></div>
             <div class="kh-row"><span class="kbd">←</span><span class="kbd">P</span><span>上一单</span></div>
             <div class="kh-row"><span class="kbd">A</span><span>通过当前单（免确认快审）</span></div>
-            <div class="kh-row"><span class="kbd">R</span><span>驳回当前单（用底部驳回原因）</span></div>
+            <div class="kh-row"><span class="kbd">R</span><span>驳回当前单（用底部勾选的原因）</span></div>
             <div class="kh-row"><span class="kbd">T</span><span>编辑当前单转写</span></div>
             <div class="kh-row"><span class="kbd">G</span><span>切换「审后自动播放下一条」</span></div>
             <div class="kh-row"><span class="kbd">Esc</span><span>停止播放 / 关闭弹窗</span></div>
@@ -151,8 +151,21 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="review_note" label="审核备注" min-width="140" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.review_note || '-' }}</template>
+        <el-table-column label="驳回原因/备注" min-width="160">
+          <template #default="{ row }">
+            <template v-if="row.reject_reasons">
+              <el-tag
+                v-for="t in rejectReasonTags(row)"
+                :key="t"
+                type="danger"
+                size="small"
+                effect="plain"
+                class="rr-tag"
+              >{{ t }}</el-tag>
+            </template>
+            <span v-if="row.review_note" class="rr-note">{{ row.review_note }}</span>
+            <span v-if="!row.reject_reasons && !row.review_note" class="tr-empty">-</span>
+          </template>
         </el-table-column>
         <el-table-column prop="reviewed_by_name" label="审核人" width="90">
           <template #default="{ row }">{{ row.reviewed_by_name || '-' }}</template>
@@ -194,10 +207,23 @@
         />
         <div class="pb-actions">
           <el-button size="small" :icon="VideoPlay" @click="togglePlay">播放/暂停</el-button>
+          <el-select
+            v-model="rejectReasons"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="驳回原因（多选）"
+            clearable
+            size="small"
+            class="pb-reasons"
+            @keydown.stop
+          >
+            <el-option v-for="r in REJECT_REASON_OPTIONS" :key="r.key" :label="r.label" :value="r.key" />
+          </el-select>
           <el-input
             v-model="rejectNote"
             size="small"
-            placeholder="驳回原因（可选）"
+            placeholder="备注（可选）"
             clearable
             class="pb-note"
             @keydown.stop
@@ -252,6 +278,36 @@
         </template>
       </el-dialog>
 
+      <!-- 批量驳回弹窗（原因多选 + 备注，后台完善 2） -->
+      <el-dialog v-model="batchDialog.visible" title="批量驳回" width="480px" :close-on-click-modal="false">
+        <div class="bb-tip">已选 <b class="sel-count">{{ selection.length }}</b> 条待审核录音，将统一驳回。</div>
+        <div class="bb-field">
+          <div class="bb-label">驳回原因（多选，可空）</div>
+          <el-select
+            v-model="batchDialog.reasons"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="选择驳回原因"
+            style="width: 100%"
+          >
+            <el-option v-for="r in REJECT_REASON_OPTIONS" :key="r.key" :label="r.label" :value="r.key" />
+          </el-select>
+        </div>
+        <div class="bb-field">
+          <div class="bb-label">备注（可空）</div>
+          <el-input v-model="batchDialog.note" placeholder="统一备注，如：这批录音背景噪音大" clearable />
+        </div>
+        <template #footer>
+          <el-button @click="batchDialog.visible = false">取消</el-button>
+          <el-button
+            type="danger"
+            :loading="batchLoading"
+            @click="doBatch(false, batchDialog.note || null, batchDialog.reasons)"
+          >确认驳回</el-button>
+        </template>
+      </el-dialog>
+
       <el-pagination
         class="pager"
         background
@@ -291,6 +347,21 @@ const QUALITY_FLAG_LABELS = {
   too_quiet: '音量过低'
 }
 
+// 驳回原因固定选项（后台完善 2，key 与后端 core/reject_reasons.py 一致）
+const REJECT_REASON_OPTIONS = [
+  { key: 'noise', label: '背景噪音' },
+  { key: 'misread', label: '念错' },
+  { key: 'too_quiet', label: '音量太小' },
+  { key: 'mandarin', label: '普通话混读' },
+  { key: 'incomplete', label: '不完整' },
+  { key: 'other', label: '其他' }
+]
+const REJECT_REASON_LABELS = Object.fromEntries(REJECT_REASON_OPTIONS.map((r) => [r.key, r.label]))
+
+function rejectReasonTags(row) {
+  return (row.reject_reasons || '').split(',').filter(Boolean).map((k) => REJECT_REASON_LABELS[k] || k)
+}
+
 function qualityTip(row) {
   const parts = (row.quality_flags || '')
     .split(',')
@@ -317,6 +388,7 @@ const sortBy = ref('pending_first')
 const selection = ref([])
 const taskOptions = ref([])
 const transDialog = ref({ visible: false, id: null, word: '', mandarin: '', dialect: '' })
+const batchDialog = ref({ visible: false, reasons: [], note: '' }) // 批量驳回：原因多选 + 备注
 const savingTrans = ref(false)
 
 // 当前单 + 单播放器状态
@@ -326,7 +398,8 @@ const currentId = ref(null)
 const pendingPlay = ref(false) // 设置 src 后等待 canplay 再自动播放，避免竞态
 const shortcutMode = ref(true) // 快捷键模式开关，默认开
 const autoPlayNext = ref(true) // 审后自动播放下一条
-const rejectNote = ref('') // 快审驳回原因（底部栏输入）
+const rejectNote = ref('') // 快审驳回备注（底部栏输入）
+const rejectReasons = ref([]) // 快审驳回原因（底部栏多选，key 列表）
 
 const currentRow = computed(() => items.value.find((r) => r.id === currentId.value) || null)
 
@@ -550,7 +623,12 @@ async function fastReject(row) {
   if (!r || r.status === 'rejected') return
   setCurrentRow(r)
   try {
-    await request.post(`/review/recordings/${r.id}/verdict`, { approved: false, note: rejectNote.value || null })
+    const payload = {
+      approved: false,
+      reasons: rejectReasons.value.length ? [...rejectReasons.value] : null,
+      note: rejectNote.value || null
+    }
+    await request.post(`/review/recordings/${r.id}/verdict`, payload)
     ElMessage.success(`已驳回 #${r.id}`)
   } catch (e) {
     return
@@ -601,10 +679,11 @@ function onKeydown(e) {
   const typing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)
 
   // 弹窗打开时只允许 Esc 关闭
-  if (transDialog.value.visible) {
+  if (transDialog.value.visible || batchDialog.value.visible) {
     if (e.key === 'Escape') {
       e.preventDefault()
-      transDialog.value.visible = false
+      if (transDialog.value.visible) transDialog.value.visible = false
+      else batchDialog.value.visible = false
     }
     return
   }
@@ -660,30 +739,29 @@ function onKeydown(e) {
 async function batchApprove() {
   const n = selection.value.length
   await ElMessageBox.confirm(`确定批量通过选中的 ${n} 条录音吗？`, '批量通过', { type: 'success' })
-  await doBatch(true, null)
+  await doBatch(true, null, null)
 }
 
-async function batchReject() {
-  let value
-  try {
-    const res = await ElMessageBox.prompt('批量驳回选中的待审核录音', '批量驳回', {
-      inputPlaceholder: '统一驳回原因（可选），如：口音不标准 / 背景噪音大',
-      inputValue: ''
-    })
-    value = res.value
-  } catch (e) {
-    return // 取消
-  }
-  await doBatch(false, value || null)
+function batchReject() {
+  // 打开批量驳回弹窗（原因多选 + 备注），确认后统一驳回
+  batchDialog.value.reasons = []
+  batchDialog.value.note = ''
+  batchDialog.value.visible = true
 }
 
-async function doBatch(approved, note) {
+async function doBatch(approved, note, reasons) {
   batchLoading.value = true
   try {
     const ids = selection.value.map((r) => r.id)
-    const data = await request.post('/review/batch-verdict', { recording_ids: ids, approved, note })
+    const data = await request.post('/review/batch-verdict', {
+      recording_ids: ids,
+      approved,
+      reasons: reasons && reasons.length ? [...reasons] : null,
+      note
+    })
     ElMessage.success(`已处理 ${data.processed} 条${data.skipped ? `，跳过已审 ${data.skipped} 条` : ''}`)
     selection.value = []
+    batchDialog.value.visible = false
     refresh()
   } finally {
     batchLoading.value = false
@@ -802,6 +880,29 @@ onUnmounted(() => {
 }
 .pb-note {
   width: 200px;
+}
+.pb-reasons {
+  width: 230px;
+}
+.rr-tag {
+  margin-right: 4px;
+}
+.rr-note {
+  margin-left: 4px;
+  color: #606266;
+  font-size: 13px;
+}
+.bb-tip {
+  margin-bottom: 12px;
+  color: #606266;
+}
+.bb-field {
+  margin-bottom: 12px;
+}
+.bb-label {
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #606266;
 }
 .tr-box {
   display: flex;

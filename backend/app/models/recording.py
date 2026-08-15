@@ -24,6 +24,8 @@ class Recording(Base):
     file_size: Mapped[int] = mapped_column(default=0)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     review_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # 驳回原因（后台完善 2）：固定 key 逗号连接（noise,misread），审核驳回时多选；可空
+    reject_reasons: Mapped[str | None] = mapped_column(String(100), nullable=True)
     mandarin_transcript: Mapped[str | None] = mapped_column(String(1000), nullable=True)  # 普通话转写（审核页填写）
     dialect_transcript: Mapped[str | None] = mapped_column(String(1000), nullable=True)  # 方言/拼音转写（审核页填写）
     reviewed_by: Mapped[int | None] = mapped_column(nullable=True)

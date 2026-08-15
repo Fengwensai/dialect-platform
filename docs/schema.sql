@@ -90,6 +90,7 @@ CREATE TABLE recordings (
 	quality_flags VARCHAR(100), 
 	quality_metrics JSON, 
 	quality_checked_at TIMESTAMP WITH TIME ZONE, 
+	reject_reasons VARCHAR(100), 
 	CONSTRAINT recordings_pkey PRIMARY KEY (id)
 )
 
