@@ -168,12 +168,13 @@
   border-radius: 16rpx;
   padding: 24rpx 28rpx;
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* 原因文字换行变多时，右侧按钮保持顶对齐，不被纵向居中顶乱 */
   justify-content: space-between;
 }
 
 .word-main {
   flex: 1;
+  min-width: 0; /* 允许长内容收缩换行，不把右侧按钮挤出卡片 */
   padding-right: 20rpx;
 }
 
@@ -197,7 +198,7 @@
   border-left: 6rpx solid #4299e1;
 }
 
-/* 本轮1 需重录原因（被驳回词条） */
+/* 本轮1 需重录原因（被驳回词条）：原因多时最多两行，超出省略，不把卡片撑太高 */
 .word-redo {
   margin-top: 12rpx;
   padding: 8rpx 16rpx;
@@ -206,6 +207,11 @@
   font-size: 24rpx;
   border-radius: 10rpx;
   border-left: 6rpx solid #e53e3e;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-all;
 }
 
 .tr-line {
@@ -232,6 +238,8 @@
   display: flex;
   align-items: center;
   gap: 16rpx;
+  flex-shrink: 0; /* 不被长内容挤压 */
+  padding-top: 6rpx; /* 顶对齐后与首行词条文字光学对齐 */
 }
 
 .chip {
