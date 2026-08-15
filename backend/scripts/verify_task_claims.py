@@ -9,6 +9,7 @@
 - 管理端解绑：未录可解绑、已录 400
 - claim_limit 上限封顶
 - 并发 10 人抢 5 词条 → 恰好 5×200 + 5×409（行锁串行，池只减不增）
+- 任务级进度（后台完善 4）：跨全部发音人去重的 recorded/approved、完成状态四态（进行中/接近完成/已完成/归档）、未登录 401
 
 依赖：httpx（fastapi.testclient）。
 用法: ./.venv/Scripts/python.exe scripts/verify_task_claims.py
@@ -241,6 +242,73 @@ def main():
         n409 = codes.count(409)
         check("并发 10 人抢 5 词条 → 5×200 + 5×409", n200 == 5 and n409 == 5 and len(codes) == 10,
               f"codes={sorted(codes)}")
+
+        # —— 12. 任务级进度（后台完善 4）：跨全部发音人、按词条去重 ——
+        def task_item(tid):
+            r = c.get("/api/tasks", headers=SUPER, params={"page_size": 200})
+            items = r.json().get("items", []) if r.status_code == 200 else []
+            return next((i for i in items if i["id"] == tid), None), r
+
+        # 12.1 任务 A（3 词条）：仅 sp_a 传了 w1 → recorded=1 / approved=0 / 进行中（1/3<0.8）
+        it, r = task_item(ta)
+        check("任务A 进度 recorded=1 通过=0 进行中", r.status_code == 200 and it is not None
+              and it.get("word_count") == 3 and it.get("recorded_count") == 1
+              and it.get("approved_count") == 0 and it.get("completion_status") == "in_progress",
+              f"word={it and it.get('word_count')} rec={it and it.get('recorded_count')} "
+              f"appr={it and it.get('approved_count')} status={it and it.get('completion_status')}")
+
+        # 12.2 直写 approved 录音（w2 属 sp_b，跨发音人）→ recorded=2 / approved=1
+        db.add(Recording(task_id=ta, word_id=w2.id, speaker_id=sp_b.id, status="approved",
+                         audio_url="/verify/task_progress.wav"))
+        db.commit()
+        it, _ = task_item(ta)
+        check("任务A 跨发音人 recorded=2 通过=1", it is not None
+              and it.get("recorded_count") == 2 and it.get("approved_count") == 1,
+              f"rec={it and it.get('recorded_count')} appr={it and it.get('approved_count')}")
+
+        # 12.3 直写 w3 approved → recorded=3 / approved=2 → 已完成（100%）
+        db.add(Recording(task_id=ta, word_id=w3.id, speaker_id=sp_a.id, status="approved",
+                         audio_url="/verify/task_progress.wav"))
+        db.commit()
+        it, _ = task_item(ta)
+        check("任务A 已录满3 通过=2 → 已完成", it is not None
+              and it.get("recorded_count") == 3 and it.get("approved_count") == 2
+              and it.get("completion_status") == "completed",
+              f"rec={it and it.get('recorded_count')} appr={it and it.get('approved_count')} "
+              f"status={it and it.get('completion_status')}")
+
+        # 12.4 任务 C（5 词条，4 条 approved → 4/5=80% ≥ 阈值）→ 接近完成
+        wc = []
+        for i in range(9, 14):
+            w = WordLibrary(code=f"VFY-C{i}", dialect_point="北京话", content=f"领取验证进度{i}",
+                            example_sentence="测试。", province_code=PROV, status="active")
+            db.add(w)
+            db.flush()
+            wc.append(w)
+        db.commit()
+        tc = make_task("验证领取-进度", [x.id for x in wc], 10)
+        check("建任务C 5词条并发布", bool(tc), f"tc={tc}")
+        for w in wc[:4]:
+            db.add(Recording(task_id=tc, word_id=w.id, speaker_id=sp_a.id, status="approved",
+                             audio_url="/verify/task_progress.wav"))
+        db.commit()
+        it, _ = task_item(tc)
+        check("任务C 4/5 通过 → 接近完成", it is not None
+              and it.get("word_count") == 5 and it.get("recorded_count") == 4
+              and it.get("approved_count") == 4 and it.get("completion_status") == "near_complete",
+              f"word={it and it.get('word_count')} rec={it and it.get('recorded_count')} "
+              f"appr={it and it.get('approved_count')} status={it and it.get('completion_status')}")
+
+        # 12.5 关闭任务 A → 归档（closed 覆盖进度）
+        r = c.post(f"/api/tasks/{ta}/close", headers=SUPER)
+        check("关闭任务A", r.status_code == 200, str(r.status_code))
+        it, _ = task_item(ta)
+        check("任务A 关闭后 → 归档", it is not None and it.get("completion_status") == "archived",
+              f"status={it and it.get('completion_status')}")
+
+        # 12.6 未登录 任务列表 → 401
+        r = c.get("/api/tasks")
+        check("未登录 任务列表 401", r.status_code == 401, str(r.status_code))
 
         cleanup(db)
     finally:

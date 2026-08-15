@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     SPEAKER_WARN_APPROVAL_RATE: float = 0.4
     # 已审核（通过+驳回）≥ 此条数才触发预警，防小样本误报
     SPEAKER_WARN_MIN_REVIEWED: int = 10
+    # —— 任务级进度（后台完善 4，.env 可覆盖调参）——
+    # 已录词条占比 ≥ 此比例 → 接近完成（已完成=100%，已关闭=归档）
+    TASK_NEAR_COMPLETE_RATIO: float = 0.8
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),

@@ -5,6 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..core.deps import get_current_admin
+from ..core.task_progress import completion_status
 from ..db import get_db
 from ..models.admin import AdminUser
 from ..models.recording import Recording
@@ -154,13 +155,31 @@ def list_tasks(
             .group_by(TaskBatchItem.task_batch_id)
             .all()
         )
+        # 任务级进度（后台完善 4）：跨全部发音人、按词条去重（重录覆盖旧行）
+        rec_counts = dict(
+            db.query(Recording.task_id, func.count(func.distinct(Recording.word_id)))
+            .filter(Recording.task_id.in_(batch_ids))
+            .group_by(Recording.task_id)
+            .all()
+        )
+        appr_counts = dict(
+            db.query(Recording.task_id, func.count(func.distinct(Recording.word_id)))
+            .filter(Recording.task_id.in_(batch_ids), Recording.status == "approved")
+            .group_by(Recording.task_id)
+            .all()
+        )
     else:
         counts = {}
+        rec_counts = {}
+        appr_counts = {}
 
     items = []
     for b in batches:
         out = TaskBatchOut.model_validate(b)
         out.word_count = counts.get(b.id, 0)
+        out.recorded_count = rec_counts.get(b.id, 0)
+        out.approved_count = appr_counts.get(b.id, 0)
+        out.completion_status = completion_status(b.status, out.recorded_count, out.word_count)
         items.append(out)
     return {"total": total, "items": items}
 

@@ -132,6 +132,19 @@
         <el-table-column prop="word_count" label="词条数" width="80" />
         <el-table-column prop="required_audio_count" label="必录数" width="80" />
         <el-table-column prop="claim_limit" label="领取上限" width="90" />
+        <el-table-column label="任务进度" width="220">
+          <template #default="{ row }">
+            <el-progress
+              :percentage="taskPct(row)"
+              :stroke-width="10"
+              :format="() => `${row.recorded_count || 0}/${row.word_count || 0}`"
+            />
+            <div class="task-progress-meta">
+              <span class="muted">通过 {{ row.approved_count || 0 }}</span>
+              <el-tag :type="completionTag(row.completion_status)" size="small">{{ completionLabel(row.completion_status) }}</el-tag>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="statusTag(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
@@ -643,6 +656,18 @@ function statusTag(s) {
   return { draft: 'info', published: 'success', closed: 'danger' }[s] || 'info'
 }
 
+// 任务级进度（后台完善 4）：进度条按已录词条 / 任务词条总数，旁附通过数 + 完成状态 tag
+function taskPct(row) {
+  const total = row.word_count || 0
+  return total ? Math.round(((row.recorded_count || 0) / total) * 100) : 0
+}
+function completionLabel(s) {
+  return { in_progress: '进行中', near_complete: '接近完成', completed: '已完成', archived: '归档' }[s] || '进行中'
+}
+function completionTag(s) {
+  return { in_progress: 'info', near_complete: 'warning', completed: 'success', archived: 'danger' }[s] || 'info'
+}
+
 async function openClaims(row) {
   claimsVisible.value = true
   claimsTitle.value = `领取管理 — ${row.name}`
@@ -711,6 +736,12 @@ onMounted(async () => {
   margin-top: 4px;
   color: #909399;
   font-size: 12px;
+}
+.task-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
 }
 .muted {
   color: #c0c4cc;

@@ -48,6 +48,10 @@ class TaskBatchOut(BaseModel):
     created_at: datetime
     published_at: datetime | None = None
     word_count: int = 0
+    # —— 任务级进度（后台完善 4）：跨全部发音人、按词条去重（重录覆盖旧行）——
+    recorded_count: int = 0       # 已录词条（任意状态）
+    approved_count: int = 0       # 已通过词条（approved）
+    completion_status: str = "in_progress"  # archived / completed / near_complete / in_progress
 
 
 class TaskClaimAdminOut(BaseModel):
