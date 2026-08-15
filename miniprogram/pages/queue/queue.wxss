@@ -4,8 +4,15 @@
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap; /* 按钮放不下时换行，避免互相挤压 */
   gap: 20rpx;
   margin-bottom: 24rpx;
+}
+
+/* 按钮不收缩、文字不换行：长标签（清理已完成/失效）保持按钮形状，不撑变形 */
+.toolbar button {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .select-toolbar {
