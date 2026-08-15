@@ -170,6 +170,16 @@ def dashboard_health(
 
     pending = rec_q.filter(Recording.status == "pending").count()
 
+    # 到期任务（后台完善 9）：已发布且已过截止时间，按任务属地钳制（省管只看本省）
+    task_q = db.query(func.count(TaskBatch.id)).filter(
+        TaskBatch.status == "published",
+        TaskBatch.deadline_at.isnot(None),
+        TaskBatch.deadline_at < datetime.now(timezone.utc),
+    )
+    if scope:
+        task_q = task_q.filter(TaskBatch.province_code == scope)
+    expired_tasks = task_q.scalar() or 0
+
     today_start = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
@@ -193,6 +203,7 @@ def dashboard_health(
     free_pct = usage.free / usage.total * 100 if usage.total else 100.0
     return HealthSummary(
         pending=pending,
+        expired_tasks=expired_tasks,
         today_uploaded=today_uploaded,
         today_approved=today_approved,
         today_rejected=today_rejected,

@@ -42,6 +42,16 @@
           <el-input-number v-model="form.claim_limit" :min="1" :max="500" />
           <div class="tip">每名发音人同时最多领取的词条数（领取制）</div>
         </el-form-item>
+        <el-form-item label="截止时间">
+          <el-date-picker
+            v-model="form.deadline_at"
+            type="datetime"
+            placeholder="选填；到点任务标「已截止」"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            style="width: 300px"
+          />
+          <div class="tip">发布后过截止时间 → 列表/看板标「已截止」，可一键清理到期任务关闭</div>
+        </el-form-item>
         <el-form-item label="说明">
           <el-input v-model="form.description" placeholder="任务说明（选填）" style="width: 320px" />
         </el-form-item>
@@ -111,7 +121,20 @@
 
     <!-- 任务列表 -->
     <el-card shadow="never">
-      <template #header><b>已创建任务（{{ taskTotal }}）</b></template>
+      <template #header>
+        <div class="card-header">
+          <b>已创建任务（{{ taskTotal }}）</b>
+          <el-button
+            size="small"
+            type="warning"
+            plain
+            :loading="cleaning"
+            @click="cleanupExpired"
+          >
+            清理到期任务
+          </el-button>
+        </div>
+      </template>
       <el-table :data="tasks" v-loading="tasksLoading" border>
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column label="任务名称" min-width="180">
@@ -148,6 +171,19 @@
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="statusTag(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="截止时间" width="185">
+          <template #default="{ row }">
+            <template v-if="row.deadline_at">
+              <span :class="{ 'deadline-expired': row.completion_status === 'expired' }">
+                {{ fmtDeadline(row.deadline_at) }}
+              </span>
+              <span class="muted" :class="{ 'deadline-expired': row.completion_status === 'expired' }">
+                · {{ deadlineRemain(row.deadline_at) }}
+              </span>
+            </template>
+            <span v-else class="muted">-</span>
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="170">
@@ -204,6 +240,16 @@
         </el-form-item>
         <el-form-item label="每人领取上限">
           <el-input-number v-model="editForm.claim_limit" :min="1" :max="500" />
+        </el-form-item>
+        <el-form-item label="截止时间">
+          <el-date-picker
+            v-model="editForm.deadline_at"
+            type="datetime"
+            placeholder="选填；到点任务标「已截止」"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%"
+          />
+          <div class="tip">发布后过截止时间 → 列表/看板标「已截止」；发布后不可再改（仅草稿可编辑）</div>
         </el-form-item>
         <el-form-item label="说明">
           <el-input v-model="editForm.description" placeholder="任务说明（选填）" />
@@ -288,7 +334,7 @@ const regionStore = useRegionStore()
 
 const cascaderProps = { value: 'code', label: 'name', children: 'children', checkStrictly: true, emitPath: true }
 
-const form = reactive({ name: '', description: '', required_audio_count: 30, claim_limit: 10, is_demo: false })
+const form = reactive({ name: '', description: '', required_audio_count: 30, claim_limit: 10, is_demo: false, deadline_at: null })
 const taskRegion = ref([])
 const wordFilterRegion = ref([])
 const wordKeyword = ref('')
@@ -313,7 +359,8 @@ const taskPageSize = ref(20)
 
 const editVisible = ref(false)
 const editing = ref(false)
-const editForm = reactive({ id: null, name: '', description: '', required_audio_count: 30, claim_limit: 10, team_code: null })
+const cleaning = ref(false) // 清理到期任务（后台完善 9）
+const editForm = reactive({ id: null, name: '', description: '', required_audio_count: 30, claim_limit: 10, team_code: null, deadline_at: null })
 const editWordIds = ref([])
 const editWordOptions = ref([])
 const editWordLoading = ref(false)
@@ -489,7 +536,8 @@ async function createTask(publishAfter) {
       required_audio_count: form.required_audio_count,
       claim_limit: form.claim_limit,
       word_ids: [...selectedWords.value],
-      is_demo: form.is_demo
+      is_demo: form.is_demo,
+      deadline_at: toUtcIso(form.deadline_at)
     }
     const task = await request.post('/tasks', body)
     if (publishAfter) {
@@ -501,6 +549,7 @@ async function createTask(publishAfter) {
     form.name = ''
     form.description = ''
     form.is_demo = false
+    form.deadline_at = null
     selectedWords.value = new Set()
     selectedTeamCode.value = null
     if (auth.isSuper) {
@@ -539,7 +588,8 @@ async function openEdit(row) {
     description: row.description || '',
     required_audio_count: row.required_audio_count,
     claim_limit: row.claim_limit ?? 10,
-    team_code: row.team_code || null
+    team_code: row.team_code || null,
+    deadline_at: toLocalInput(row.deadline_at)
   })
   // 预载已选词条
   try {
@@ -587,7 +637,8 @@ async function saveEdit() {
       required_audio_count: editForm.required_audio_count,
       claim_limit: editForm.claim_limit,
       word_ids: editWordIds.value,
-      team_code: editForm.team_code || null
+      team_code: editForm.team_code || null,
+      deadline_at: toUtcIso(editForm.deadline_at)
     })
     ElMessage.success('已保存')
     editVisible.value = false
@@ -662,10 +713,59 @@ function taskPct(row) {
   return total ? Math.round(((row.recorded_count || 0) / total) * 100) : 0
 }
 function completionLabel(s) {
-  return { in_progress: '进行中', near_complete: '接近完成', completed: '已完成', archived: '归档' }[s] || '进行中'
+  return { in_progress: '进行中', near_complete: '接近完成', completed: '已完成', archived: '归档', expired: '已截止' }[s] || '进行中'
 }
 function completionTag(s) {
-  return { in_progress: 'info', near_complete: 'warning', completed: 'success', archived: 'danger' }[s] || 'info'
+  return { in_progress: 'info', near_complete: 'warning', completed: 'success', archived: 'danger', expired: 'danger' }[s] || 'info'
+}
+
+/* —— 截止时间（后台完善 9）：本地输入 <-> UTC ISO，避免时区错位 —— */
+function toLocalInput(iso) {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+function toUtcIso(localInput) {
+  if (!localInput) return null
+  const d = new Date(localInput.replace(' ', 'T'))
+  return isNaN(d.getTime()) ? null : d.toISOString()
+}
+function fmtDeadline(iso) {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+function deadlineRemain(iso) {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const days = Math.ceil((d.getTime() - Date.now()) / 86400000)
+  if (days > 0) return `剩 ${days} 天`
+  if (days === 0) return '今天截止'
+  return '已到期'
+}
+
+async function cleanupExpired() {
+  try {
+    await ElMessageBox.confirm(
+      '将关闭所有「已发布且已过截止时间」的任务：小程序立即不再展示/采录，已采集录音保留。确定清理？',
+      '清理到期任务',
+      { type: 'warning', confirmButtonText: '清理' }
+    )
+  } catch (e) {
+    return
+  }
+  cleaning.value = true
+  try {
+    const data = await request.post('/tasks/cleanup-expired')
+    ElMessage.success(`已关闭 ${data.closed} 个到期任务`)
+    loadTasks()
+  } finally {
+    cleaning.value = false
+  }
 }
 
 async function openClaims(row) {
@@ -745,6 +845,10 @@ onMounted(async () => {
 }
 .muted {
   color: #c0c4cc;
+}
+.deadline-expired {
+  color: #f56c6c;
+  font-weight: 600;
 }
 .opt-code {
   margin-left: 8px;

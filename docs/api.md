@@ -401,11 +401,12 @@ JWT（HS256）内包含：
   "team_code": "HB-SJZ",
   "required_audio_count": 30,
   "claim_limit": 10,
+  "deadline_at": "2026-08-30T00:00:00Z",
   "word_ids": [1, 2, 3, 4, 5, 6]
 }
 ```
 
-**字段**：`name` 必填；`province_code` 必填；`city_code`/`district_code` 为空 = 全省/全市投放；`team_code` 可选（阶段八·任务关联团队）；`required_audio_count` 默认 30；`claim_limit` 默认 10（阶段十一·每人领取上限）；`word_ids` 允许为空（后续再补词条）。
+**字段**：`name` 必填；`province_code` 必填；`city_code`/`district_code` 为空 = 全省/全市投放；`team_code` 可选（阶段八·任务关联团队）；`required_audio_count` 默认 30；`claim_limit` 默认 10（阶段十一·每人领取上限）；`deadline_at` 可选（后台完善 9·任务截止时间，UTC ISO；不传 = 无截止）；`word_ids` 允许为空（后续再补词条）。
 
 > **`team_code` 关联语义（阶段八）**：传入团队码时，团队须存在（否则 422「团队码不存在」）；**投放区划由团队码自动带出**——`province_code`/`city_code` 必须与团队属地一致，否则 422「任务地区与团队码地区不一致，选择团队后地区由团队码自动带出」；`district_code` 被清空（团队码仅精确到市）。省管理员只能关联本省团队码（403「只能关联本省的团队码」）。`team_code` 仅作归属追溯/筛选，**小程序端隔离仍按省+市**（见 `docs/miniprogram-api.md`）。
 
@@ -423,12 +424,16 @@ JWT（HS256）内包含：
   "required_audio_count": 30,
   "claim_limit": 10,
   "status": "draft",
+  "completion_status": "draft",
   "created_by": 1,
   "created_at": "2026-08-07T09:00:00Z",
   "published_at": null,
+  "deadline_at": null,
   "word_count": 6
 }
 ```
+
+> **`completion_status`（后台完善 9）**：任务完成/到期状态，`archived`（已关闭）/ `completed`（已录满 100%）/ `expired`（已发布且已过截止时间）/ `near_complete`（≥ 阈值，默认 80%）/ `in_progress`。优先级：已关闭 > 已录满（completed 优先于 expired）> 已到期 > 接近完成 > 进行中。列表与创建/发布/关闭/重开响应均返回。
 
 **错误**：
 - `403 {"detail": "只能给自己管辖省份创建任务"}`（省管理员手选非本省省份）
@@ -484,12 +489,14 @@ JWT（HS256）内包含：
   "description": "任务说明",
   "required_audio_count": 50,
   "claim_limit": 20,
+  "deadline_at": "2026-09-01T00:00:00Z",
   "word_ids": [1, 2, 3],
   "team_code": "HB-SJZ"
 }
 ```
 
 - 缺省字段 = 不改；`description` 传 `null` = 清空说明。
+- `deadline_at`（后台完善 9）：传 ISO 设截止，传 `null` = 清空截止（不传 = 不改）。
 - `word_ids` 一旦提供则**整体替换**任务词条集合（先清后插，`word_count` 同步更新）。
 - 省管理员编辑时，词条被钳制为本省词条。
 - **占用制**：编辑时占用校验**排除当前任务自身词条**（`exclude_task_id`），自己的词条合法；新增的其它任务已占用词条会被拒绝。
@@ -585,6 +592,18 @@ JWT（HS256）内包含：
 **错误**：
 - `404 {"detail": "领取记录不存在"}`
 - `400 {"detail": "该词条已录制，不能解绑"}`（已录不可解绑，需先驳回/删除该录音）
+
+### 6.11 清理到期任务（后台完善 9）
+
+`POST /api/tasks/cleanup-expired`
+
+一键关闭所有**已发布且已过截止时间**（`status == published` 且 `deadline_at < now`）的任务：逐个 `status="closed"` + 审计「到期自动关闭」。小程序端 `GET /api/mp/tasks` 只返回 `published`，因此关闭后**立即停止展示/采录**，无需改动小程序。**已录满任务**即使过截止也被关闭（运营清理口径）。未来截止任务不受影响。
+
+**权限**：超管清理全国；省管理员自动钳制本省任务。
+
+**响应 200**：`{"closed": N}`（本次关闭任务数）。
+
+**错误**：`401` 未登录。
 
 ---
 
@@ -903,6 +922,7 @@ JWT（HS256）内包含：
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `pending` | int | 待审核积压（口径与概览一致） |
+| `expired_tasks` | int | 已发布且已过截止时间的任务数（后台完善 9；>0 前端标红提醒，超管全量/省管本省） |
 | `today_uploaded` / `today_approved` / `today_rejected` | int | 今日新增录音 / 通过 / 驳回（UTC 日界，与趋势窗口一致） |
 | `disk_total_gb` / `disk_used_gb` / `disk_free_gb` | float | 磁盘总量 / 已用 / 剩余（GB，`MEDIA_ROOT` 所在盘） |
 | `disk_used_pct` | float | 磁盘已用百分比 |
@@ -1082,6 +1102,44 @@ JWT（HS256）内包含：
 
 **落库范围**（20 类高风险+管理写操作，跳过常规字段编辑）：发布/关闭/重新打开/删除任务、审核通过/驳回/批量/重置为待审/删除录音、删除/合并发音人、删除/合并词条、创建/修改/删除管理员、删除团队码、解绑领取、导入词表。与操作同一事务原子落库。
 
+### 13.2 审核工作量/质量报表（后台完善 9）
+
+`GET /api/audit-logs/workload`
+
+按审核员统计窗口内审核条数 / 通过数 / 驳回数 / 通过率 / 驳回原因分布。数据源为 `recordings.reviewed_by/reviewed_at/status/reject_reasons`，**纯派生无迁移**；「重置为待审」「删除录音」不产生新审核记录，不计入。
+
+**Query 参数**：
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `days` | int 1–90 | 滚动窗口天数（默认 7；「今日」= 1），按 `reviewed_at >= now - days` 过滤 |
+
+**响应 200**（`AuditWorkloadOut`）：
+
+```json
+{
+  "items": [
+    {
+      "admin_id": 2,
+      "admin_name": "河北管理员",
+      "total": 12,
+      "approved": 9,
+      "rejected": 3,
+      "approval_rate": 0.75,
+      "reasons": [ { "key": "noise", "label": "背景噪音", "count": 2 }, { "key": "misread", "label": "读错", "count": 1 } ]
+    }
+  ],
+  "total": 1,
+  "days": 7
+}
+```
+
+- `approval_rate` = `approved / (approved + rejected)`，无审核时 0。
+- `reasons`：按 `reject_reasons` 逗号拆串计数（`noise,misread` → 两条），`label` 取驳回原因映射（未知 key 保留原名），按 `count` 降序；无驳回 → `[]`。
+- `items` 按 `total` 降序；`admin_name` 取管理员 name（fallback username，已删除管理员显示 `#id`）。
+
+**错误**：`401` 未登录、`403`（省管理员，本报表 superOnly）。
+
 ---
 
 ## 14. data-health — 数据健康巡检（后台完善 7）
@@ -1145,8 +1203,9 @@ JWT（HS256）内包含：
 | `POST /api/excel/upload` `POST /api/excel/import` | ✅（全省） | ✅（限本省） |
 | `GET /api/words` `PATCH/DELETE /api/words/{id}` | ✅（全省） | ✅（限本省） |
 | `GET /api/regions/tree` | ✅ | ✅ |
-| `POST /api/tasks` `GET /api/tasks` `POST /api/tasks/{id}/publish` | ✅（全省） | ✅（限本省） |
+| `POST /api/tasks` `GET /api/tasks` `POST /api/tasks/{id}/publish` `POST /api/tasks/cleanup-expired` | ✅（全省） | ✅（限本省） |
 | `GET/POST /api/users` `PATCH/DELETE /api/users/{id}` | ✅ | ❌ 403 |
+| `GET /api/audit-logs` `GET /api/audit-logs/workload` | ✅ | ❌ 403 |
 | `GET /api/speakers` `PATCH/DELETE /api/speakers/{id}` `GET /api/speakers/{id}/recordings` | ✅（全省） | ✅（限本省） |
 | `GET/POST /api/team-codes` `PATCH/DELETE /api/team-codes/{id}` | ✅（全省） | ✅（限本省） |
 | `GET /api/agreements` `GET /api/agreements/history` `POST /api/agreements` | ✅ | ❌ 403 |

@@ -115,6 +115,7 @@ class HealthSummary(BaseModel):
     """业务健康度（后台完善 8）：审核积压 / 今日上传 / 磁盘占用 / 存储方式（省管理员钳制本省）。"""
 
     pending: int  # 待审核积压（口径与看板概览一致）
+    expired_tasks: int  # 已发布且已过截止时间的任务数（到期未关闭，催收红标，后台完善 9）
     today_uploaded: int  # 今日新增录音（UTC 日界，与趋势窗口一致）
     today_approved: int
     today_rejected: int

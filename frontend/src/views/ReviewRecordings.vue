@@ -334,6 +334,7 @@ import request from '../api/request'
 import { useAuthStore } from '../stores/auth'
 import { useRegionStore } from '../stores/regions'
 import { downloadFile } from '../utils/download'
+import { usePersistedFilters } from '../composables/usePersistedFilters'
 
 const auth = useAuthStore()
 const regionStore = useRegionStore()
@@ -382,14 +383,25 @@ const batchLoading = ref(false)
 const items = ref([])
 const total = ref(0)
 const pendingCount = ref(0) // 待审积压（全局/本省，顶部 badge，后台完善 8）
-const page = ref(1)
-const pageSize = ref(20)
-const filterTaskId = ref(null)
-const filterStatus = ref('pending')
-const filterQuality = ref(false) // 只看疑似无效
-const filterKeyword = ref('')
-const filterProvince = ref('')
-const sortBy = ref('pending_first')
+const page = ref(1) // 页码不持久化（刷新回第 1 页）
+// 筛选条件本地持久化（后台完善 9）：刷新/重进不丢；reset() 把值设回默认即清空
+const {
+  pageSize,
+  filterTaskId,
+  filterStatus,
+  filterQuality, // 只看疑似无效
+  filterKeyword,
+  filterProvince,
+  sortBy
+} = usePersistedFilters('review-filters-v1', {
+  pageSize: 20,
+  filterTaskId: null,
+  filterStatus: 'pending',
+  filterQuality: false,
+  filterKeyword: '',
+  filterProvince: '',
+  sortBy: 'pending_first'
+})
 const selection = ref([])
 const taskOptions = ref([])
 const transDialog = ref({ visible: false, id: null, word: '', mandarin: '', dialect: '' })

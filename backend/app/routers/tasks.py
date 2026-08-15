@@ -113,6 +113,7 @@ def create_task(
         status="draft",
         created_by=admin.id,
         is_demo=body.is_demo,
+        deadline_at=body.deadline_at,
     )
     db.add(batch)
     db.flush()
@@ -179,7 +180,9 @@ def list_tasks(
         out.word_count = counts.get(b.id, 0)
         out.recorded_count = rec_counts.get(b.id, 0)
         out.approved_count = appr_counts.get(b.id, 0)
-        out.completion_status = completion_status(b.status, out.recorded_count, out.word_count)
+        out.completion_status = completion_status(
+            b.status, out.recorded_count, out.word_count, deadline_at=b.deadline_at
+        )
         items.append(out)
     return {"total": total, "items": items}
 
@@ -286,6 +289,9 @@ def update_task(
         batch.required_audio_count = data["required_audio_count"]
     if "claim_limit" in data:
         batch.claim_limit = data["claim_limit"]
+    if "deadline_at" in data:
+        # 截止时间可设/可清空（传 null 即清空）；exclude_unset 已区分「未传」与「传 null」
+        batch.deadline_at = data["deadline_at"]
     if "team_code" in data:
         team_code = _normalize(data["team_code"]) if data["team_code"] else None
         if team_code:
@@ -333,6 +339,35 @@ def close_task(
     db.commit()
     db.refresh(batch)
     return _task_out(db, batch)
+
+
+@router.post("/cleanup-expired")
+def cleanup_expired_tasks(
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """一键清理到期任务（后台完善 9）：关闭所有「已发布且已过截止时间」的任务。
+
+    关闭后小程序端立即不再展示/采录（mp 校验 status=published）；省管理员只清理本省。
+    """
+    q = db.query(TaskBatch).filter(
+        TaskBatch.status == "published",
+        TaskBatch.deadline_at.isnot(None),
+        TaskBatch.deadline_at < datetime.now(timezone.utc),
+    )
+    if admin.role == "province_admin" and admin.province_code:
+        q = q.filter(TaskBatch.province_code == admin.province_code)
+    batches = q.all()
+    for b in batches:
+        b.status = "closed"
+        log_admin_action(
+            db, admin, "到期自动关闭", "task", b.id,
+            summary=f"到期自动关闭任务 #{b.id}「{b.name}」",
+            ip=rate_limit.client_ip(request),
+        )
+    db.commit()
+    return {"closed": len(batches)}
 
 
 @router.post("/{batch_id}/reopen", response_model=TaskBatchOut)

@@ -61,6 +61,16 @@
           <div class="stat-num">{{ health?.pending ?? '-' }}</div>
           <div class="stat-label">待审核积压{{ health?.backlog_level === 'high' ? '（积压）' : '' }}</div>
         </div>
+        <div
+          class="stat-box warn"
+          :class="{ bad: (health?.expired_tasks ?? 0) > 0 }"
+          style="cursor: pointer"
+          title="到期任务列表"
+          @click="$router.push('/tasks')"
+        >
+          <div class="stat-num">{{ health?.expired_tasks ?? '-' }}</div>
+          <div class="stat-label">到期任务{{ (health?.expired_tasks ?? 0) > 0 ? '（催收）' : '' }}</div>
+        </div>
         <div class="stat-box"><div class="stat-num">{{ health?.today_uploaded ?? '-' }}</div><div class="stat-label">今日上传</div></div>
         <div class="stat-box ok"><div class="stat-num">{{ health?.today_approved ?? '-' }}</div><div class="stat-label">今日通过</div></div>
         <div class="stat-box bad"><div class="stat-num">{{ health?.today_rejected ?? '-' }}</div><div class="stat-label">今日驳回</div></div>

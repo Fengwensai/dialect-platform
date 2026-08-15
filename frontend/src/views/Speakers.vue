@@ -286,6 +286,7 @@ import request from '../api/request'
 import { useAuthStore } from '../stores/auth'
 import { useRegionStore } from '../stores/regions'
 import { downloadFile } from '../utils/download'
+import { usePersistedFilters } from '../composables/usePersistedFilters'
 
 const GENDER_LABELS = { male: '男', female: '女', other: '其他' }
 const AGE_LABELS = { under18: '<18', age18_30: '18-30', age31_45: '31-45', age46_60: '46-60', over60: '>60' }
@@ -296,12 +297,16 @@ const loading = ref(false)
 const saving = ref(false)
 const items = ref([])
 const total = ref(0)
-const page = ref(1)
-const pageSize = ref(20)
-const keyword = ref('')
-const filterProvince = ref('')
-const filterGender = ref('')
-const filterAgeBracket = ref('')
+const page = ref(1) // 页码不持久化（刷新回第 1 页）
+// 筛选条件本地持久化（后台完善 9）：刷新/重进不丢；reset() 把值设回默认即清空
+const { pageSize, keyword, filterProvince, filterGender, filterAgeBracket } =
+  usePersistedFilters('speakers-filters-v1', {
+    pageSize: 20,
+    keyword: '',
+    filterProvince: '',
+    filterGender: '',
+    filterAgeBracket: ''
+  })
 
 const editVisible = ref(false)
 const editForm = reactive({ id: null, nickname: '', gender: '', age_bracket: '', province_code: '', city_code: '', team_code: '' })

@@ -138,6 +138,7 @@ import { Download, RefreshLeft, Search } from '@element-plus/icons-vue'
 import request from '../api/request'
 import { useRegionStore } from '../stores/regions'
 import { downloadFile } from '../utils/download'
+import { usePersistedFilters } from '../composables/usePersistedFilters'
 
 const regionStore = useRegionStore()
 const loading = ref(false)
@@ -145,11 +146,14 @@ const saving = ref(false)
 const exporting = ref(false)
 const items = ref([])
 const total = ref(0)
-const page = ref(1)
-const pageSize = ref(20)
-const keyword = ref('')
-const filterRegion = ref([])
-const filterStatus = ref('')
+const page = ref(1) // 页码不持久化（刷新回第 1 页）
+// 筛选条件本地持久化（后台完善 9）：刷新/重进不丢；reset() 把值设回默认即清空
+const { pageSize, keyword, filterRegion, filterStatus } = usePersistedFilters('words-filters-v1', {
+  pageSize: 20,
+  keyword: '',
+  filterRegion: [],
+  filterStatus: ''
+})
 
 const editVisible = ref(false)
 const editForm = reactive({ id: null, code: '', dialect_point: '', content: '', example_sentence: '', pronunciation_hint: '', remark: '' })

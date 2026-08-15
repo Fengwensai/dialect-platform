@@ -29,6 +29,8 @@ class TaskBatch(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 截止时间（后台完善 9）：可选；已发布任务过截止 → 列表/看板标「已截止」，一键清理到期任务关闭
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class TaskBatchItem(Base):

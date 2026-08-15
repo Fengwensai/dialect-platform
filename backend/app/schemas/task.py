@@ -17,6 +17,8 @@ class TaskBatchCreate(BaseModel):
     word_ids: list[int] = []
     # 演示任务（审核/体验用）：未绑定团队用户可见可录，不按地区过滤。仅超管可建。
     is_demo: bool = False
+    # 截止时间（后台完善 9）：可选；发布后过截止 → 标「已截止」，一键清理到期任务关闭
+    deadline_at: datetime | None = None
 
 
 class TaskBatchUpdate(BaseModel):
@@ -28,6 +30,7 @@ class TaskBatchUpdate(BaseModel):
     claim_limit: int | None = None
     word_ids: list[int] | None = None
     team_code: str | None = None
+    deadline_at: datetime | None = None
 
 
 class TaskBatchOut(BaseModel):
@@ -47,11 +50,12 @@ class TaskBatchOut(BaseModel):
     created_by: int | None = None
     created_at: datetime
     published_at: datetime | None = None
+    deadline_at: datetime | None = None
     word_count: int = 0
     # —— 任务级进度（后台完善 4）：跨全部发音人、按词条去重（重录覆盖旧行）——
     recorded_count: int = 0       # 已录词条（任意状态）
     approved_count: int = 0       # 已通过词条（approved）
-    completion_status: str = "in_progress"  # archived / completed / near_complete / in_progress
+    completion_status: str = "in_progress"  # archived / completed / expired / near_complete / in_progress
 
 
 class TaskClaimAdminOut(BaseModel):

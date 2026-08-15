@@ -180,6 +180,7 @@ CREATE TABLE task_batches (
 	team_code VARCHAR(32), 
 	is_demo BOOLEAN DEFAULT false, 
 	claim_limit INTEGER DEFAULT 10 NOT NULL, 
+	deadline_at TIMESTAMP WITH TIME ZONE, 
 	CONSTRAINT task_batches_pkey PRIMARY KEY (id)
 )
 
