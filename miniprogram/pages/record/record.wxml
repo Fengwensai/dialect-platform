@@ -64,6 +64,7 @@
       <view class="word-info-content">{{content}}</view>
       <view class="word-info-phon" wx:if="{{pronunciation_hint}}">{{pronunciation_hint}}</view>
       <view class="word-info-example" wx:if="{{example_sentence}}">例句：{{example_sentence}}</view>
+      <view class="word-info-pos" wx:if="{{posTotal}}">第 {{posIndex}} / {{posTotal}} 条</view>
       <view class="word-info-switch" bindtap="enterPick">换词条</view>
     </view>
 

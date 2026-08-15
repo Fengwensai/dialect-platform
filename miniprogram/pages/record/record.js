@@ -34,7 +34,9 @@ Page({
     wavPath: '',
     durationMs: 0,
     fileSizeText: '',
-    saved: false
+    saved: false,
+    posIndex: 0, // 词条位置「第 x / y 条」（连续录音定位用）
+    posTotal: 0
   },
 
   onLoad(options) {
@@ -93,7 +95,9 @@ Page({
     api
       .request('/api/mp/tasks/' + task.id + '/words')
       .then((data) => {
-        const items = (data.items || []).map((w) => {
+        // 缓存完整词条列表（含 status），供「保存后自动跳下一条」定位用
+        this._wordList = data.items || []
+        const items = this._wordList.map((w) => {
           const c = chipOf(w)
           return Object.assign({}, w, { chip: c.cls, chipText: c.text })
         })
@@ -123,6 +127,8 @@ Page({
       content: w.content,
       pronunciation_hint: w.pronunciation_hint || '',
       example_sentence: w.example_sentence || '',
+      posIndex: idx + 1,
+      posTotal: this.data.wordOptions.length,
       pickMode: false
     })
   },
@@ -133,17 +139,116 @@ Page({
     api
       .request('/api/mp/tasks/' + this.data.taskId + '/words')
       .then((data) => {
-        const w = (data.items || []).find(
-          (x) => String(x.word_id) === String(this.data.wordId)
-        )
+        // 缓存完整词条列表（含 status），供「保存后自动跳下一条」定位用
+        this._wordList = data.items || []
+        const list = this._wordList
+        const idx = list.findIndex((x) => String(x.word_id) === String(this.data.wordId))
+        const w = idx >= 0 ? list[idx] : null
         if (!w) return
         this.setData({
           content: this.data.content || w.content,
           pronunciation_hint: w.pronunciation_hint || '',
-          example_sentence: w.example_sentence || ''
+          example_sentence: w.example_sentence || '',
+          posIndex: idx + 1,
+          posTotal: list.length
         })
       })
       .catch(() => {})
+  },
+
+  // —— 连续录音：保存后自动跳下一条未录词条 ——
+  /**
+   * 找同任务里「下一条还需要录」的词条（环绕：从当前往后，找不到绕回开头）。
+   * 候选 = 后端 status 为 null/rejected，且不在本地队列的 pending/uploading/done。
+   * 列表缺失时 fallback 重新拉接口；无候选返回 null。
+   */
+  _nextUnrecorded() {
+    const taskId = this.data.taskId
+    if (!taskId) return null
+
+    // 本地队列已录集合（taskId:wordId），用于跳过已录/待传/传中的词条
+    const queued = {}
+    queue.list().forEach((it) => {
+      if (it.status === 'pending' || it.status === 'uploading' || it.status === 'done') {
+        queued[String(it.taskId) + ':' + String(it.wordId)] = true
+      }
+    })
+
+    const list = this._wordList
+    if (!list || !list.length) {
+      // 列表没缓存到（如接口失败）：拉一次重建，仍拿不到就放弃自动跳
+      api
+        .request('/api/mp/tasks/' + taskId + '/words')
+        .then((data) => {
+          this._wordList = data.items || []
+          const next = this._pickNext(queued)
+          if (next) this._advanceTo(next)
+        })
+        .catch(() => {})
+      return null
+    }
+
+    const next = this._pickNext(queued)
+    if (next) this._advanceTo(next)
+    return next
+  },
+
+  _pickNext(queued) {
+    const list = this._wordList || []
+    const taskId = String(this.data.taskId)
+    const curId = String(this.data.wordId)
+
+    const isCandidate = (w) => {
+      // 已在本地队列（已录/待传/传中/完成）→ 跳过
+      if (queued[taskId + ':' + String(w.word_id)]) return false
+      // 后端 status：null=未录、rejected=需重录 是候选；approved/pending 跳过
+      const st = w.status
+      return st === null || st === undefined || st === 'rejected'
+    }
+
+    const n = list.length
+    if (!n) return null
+
+    // 当前词条在列表里 → 从其后往后扫，找不到绕回开头（环绕，漏录的也能续上）；
+    // 当前词条不在列表（如重录一个已解绑词条）→ 直接从开头取第一个候选。
+    const curIdx = list.findIndex((w) => String(w.word_id) === curId)
+    if (curIdx < 0) {
+      for (let i = 0; i < n; i++) {
+        if (isCandidate(list[i])) return list[i]
+      }
+      return null
+    }
+    for (let step = 1; step <= n; step++) {
+      const w = list[(curIdx + step) % n]
+      if (isCandidate(w)) return w
+    }
+    return null
+  },
+
+  /** 跳到指定词条：更新信息并重置为待录音状态 */
+  _advanceTo(next) {
+    this.disableBackGuard()
+    if (this._audio) {
+      this._audio.stop()
+      this._audio.destroy()
+      this._audio = null
+    }
+    const list = this._wordList || []
+    const idx = list.findIndex((w) => String(w.word_id) === String(next.word_id))
+    this.setData({
+      wordId: String(next.word_id),
+      content: next.content,
+      pronunciation_hint: next.pronunciation_hint || '',
+      example_sentence: next.example_sentence || '',
+      posIndex: idx >= 0 ? idx + 1 : 0,
+      posTotal: list.length,
+      state: 'idle',
+      display: '0:00',
+      wavPath: '',
+      durationMs: 0,
+      fileSizeText: '',
+      saved: false
+    })
   },
 
   enterPick() {
@@ -290,7 +395,15 @@ Page({
     this.disableBackGuard()
     queue.enqueue({ taskId, wordId, content, wavPath, durationMs })
     this.setData({ saved: true })
-    wx.showToast({ title: '已存入本地队列', icon: 'success' })
+
+    // 连续录音：保存成功后自动跳同任务下一条未录词条（停在待录音状态，用户点「开始录音」）
+    const hasList = !!(this._wordList && this._wordList.length)
+    const next = this._nextUnrecorded()
+    wx.showToast({
+      // 列表缺失时（罕见，走 fallback 异步重建）用中性文案，避免误报「已全部录完」
+      title: hasList ? (next ? '已保存，继续下一条' : '已保存，本任务已全部录完') : '已保存',
+      icon: 'success'
+    })
   },
 
   // —— 离开确认（录音中退出会丢进度） ——

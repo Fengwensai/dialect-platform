@@ -53,7 +53,10 @@
         <!-- 选择模式下隐藏操作，避免与勾选冲突 -->
         <view class="ops" wx:if="{{!selectMode}}">
           <text class="op" data-id="{{item.id}}" catchtap="play">试听</text>
-          <text class="op" data-id="{{item.id}}" catchtap="retry">重录</text>
+          <!-- error → 重试（不删文件直接重传）；claimLost → 去领取；其余 → 重录 -->
+          <text class="op" data-id="{{item.id}}" catchtap="retryUpload" wx:if="{{item.status === 'error'}}">重试</text>
+          <text class="op" data-id="{{item.id}}" catchtap="goClaim" wx:if="{{item.status === 'claimLost'}}">去领取</text>
+          <text class="op" data-id="{{item.id}}" catchtap="rerecord" wx:if="{{item.status !== 'error' && item.status !== 'claimLost'}}">重录</text>
           <text class="op op-danger" data-id="{{item.id}}" catchtap="remove">删除</text>
         </view>
       </view>

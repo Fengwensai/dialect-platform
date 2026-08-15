@@ -131,6 +131,51 @@ function markClaimLost(id, msg) {
   })
 }
 
+/**
+ * 上传单条：markUploading → uploadRecording → 成功 markDone+删本地文件 / 失败标错。
+ * @param {object} item 队列项
+ * @param {object} [opts] { onItem?(item, res, err) }
+ * @returns {Promise<{ok:number, fail:number}>}
+ */
+function _uploadOne(item, opts) {
+  markUploading(item.id)
+  return uploader
+    .uploadRecording(item)
+    .then((res) => {
+      markDone(item.id)
+      if (item.wavPath) _unlink(item.wavPath)
+      if (opts && opts.onItem) opts.onItem(item, res, null)
+      return { ok: 1, fail: 0 }
+    })
+    .catch((err) => {
+      if (err && err.claimLost) {
+        markClaimLost(item.id, (err && err.message) || '该词条未被领取')
+      } else {
+        markError(item.id, (err && err.message) || String(err))
+      }
+      if (opts && opts.onItem) opts.onItem(item, null, err)
+      return { ok: 0, fail: 1 }
+    })
+}
+
+/**
+ * 重试单条：把 error/claimLost 项改回 pending 并立即重新上传（不删本地文件、不用重录）。
+ * @param {string} id 队列项 id
+ * @param {object} [opts] { onItem?(item, res, err) }
+ * @returns {Promise<{ok:number, fail:number, skipped?:boolean}>}
+ */
+function retry(id, opts) {
+  if (flushing) return Promise.resolve({ ok: 0, fail: 0, skipped: true })
+  const items = _load()
+  const it = items.find((x) => x.id === id)
+  if (!it || (it.status !== 'error' && it.status !== 'claimLost')) {
+    return Promise.resolve({ ok: 0, fail: 0, skipped: true })
+  }
+  Object.assign(it, { status: 'pending', error: '' })
+  _save(items)
+  return _uploadOne(it, opts)
+}
+
 /** 删除一条（连带删本地 wav 文件） */
 function remove(id) {
   let items = _load()
@@ -195,25 +240,11 @@ function flush(opts) {
         '上传中 ' + (item.content || item.id)
       )
     }
-    markUploading(item.id)
-    return uploader
-      .uploadRecording(item)
-      .then((res) => {
-        ok++
-        markDone(item.id)
-        if (item.wavPath) _unlink(item.wavPath)
-        if (opts.onItem) opts.onItem(item, res, null)
-      })
-      .catch((err) => {
-        fail++
-        if (err && err.claimLost) {
-          markClaimLost(item.id, (err && err.message) || '该词条未被领取')
-        } else {
-          markError(item.id, (err && err.message) || String(err))
-        }
-        if (opts.onItem) opts.onItem(item, null, err)
-      })
-      .then(() => run(i + 1))
+    return _uploadOne(item, opts).then((r) => {
+      ok += r.ok
+      fail += r.fail
+      return run(i + 1)
+    })
   }
 
   return run(0)
@@ -246,5 +277,6 @@ module.exports = {
   removeMany,
   clearDone,
   flush,
+  retry,
   init
 }

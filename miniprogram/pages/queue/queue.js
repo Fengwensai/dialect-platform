@@ -65,7 +65,8 @@ Page({
     this._audio.play()
   },
 
-  retry(e) {
+  /** 重录：删本地文件后跳录音页重新念（仅对未失败项） */
+  rerecord(e) {
     const id = e.currentTarget.dataset.id
     const it = this.data.items.find((x) => x.id === id)
     if (!it) return
@@ -80,6 +81,35 @@ Page({
         '&content=' +
         encodeURIComponent(it.content || '')
     })
+  },
+
+  /** 重试：失败项直接用已存文件重新上传（不删文件） */
+  retryUpload(e) {
+    const id = e.currentTarget.dataset.id
+    const it = this.data.items.find((x) => x.id === id)
+    if (!it) return
+    if (this.data.flushing) {
+      wx.showToast({ title: '正在上传中，请稍后', icon: 'none' })
+      return
+    }
+    queue
+      .retry(id, { onItem: () => this.refresh() })
+      .then((r) => {
+        this.refresh()
+        if (r && r.skipped) return
+        wx.showToast({
+          title: r && r.ok ? '重试成功' : '重试失败，可再次重试',
+          icon: (r && r.ok) ? 'success' : 'none'
+        })
+      })
+  },
+
+  /** 去领取：未领取词条直达任务词条页领取后再回来传 */
+  goClaim(e) {
+    const id = e.currentTarget.dataset.id
+    const it = this.data.items.find((x) => x.id === id)
+    if (!it) return
+    wx.navigateTo({ url: '/pages/words/words?taskId=' + it.taskId })
   },
 
   remove(e) {

@@ -153,6 +153,12 @@
   line-height: 1.6;
 }
 
+.word-info-pos {
+  font-size: 24rpx;
+  color: #a0aec0;
+  margin-top: 12rpx;
+}
+
 .word-info-switch {
   position: absolute;
   top: 28rpx;
