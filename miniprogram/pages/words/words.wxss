@@ -198,22 +198,6 @@
   border-left: 6rpx solid #4299e1;
 }
 
-/* 本轮1 需重录原因（被驳回词条）：原因多时最多两行，超出省略，不把卡片撑太高 */
-.word-redo {
-  margin-top: 12rpx;
-  padding: 8rpx 16rpx;
-  background: #fdeaea;
-  color: #e53e3e;
-  font-size: 24rpx;
-  border-radius: 10rpx;
-  border-left: 6rpx solid #e53e3e;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  word-break: break-all;
-}
-
 .tr-line {
   font-size: 26rpx;
   color: #2d3748;

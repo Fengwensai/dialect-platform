@@ -32,7 +32,7 @@
             <text class="tr-tag">方</text>{{item.dialect_transcript}}
           </view>
         </view>
-        <view class="word-redo" wx:if="{{item.redoReason}}">需重录 · 原因：{{item.redoReason}}</view>
+        <!-- 驳回详细原因只在录音界面显示，卡片不留文字避免撑乱布局（卡片保留「需重录」红标） -->
       </view>
       <view class="word-side">
         <view class="chip chip-{{item.chip}}">{{item.chipText}}</view>
