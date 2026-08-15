@@ -30,6 +30,14 @@
       </view>
       <view class="func-arrow">›</view>
     </view>
+    <view class="func-cell">
+      <view class="func-icon func-icon-auto">自</view>
+      <view class="func-info">
+        <view class="func-title">保存后自动上传</view>
+        <view class="func-sub">录音保存即上传，失败会退回队列</view>
+      </view>
+      <switch checked="{{autoUpload}}" bindchange="onToggleAutoUpload" color="#319795" />
+    </view>
     <view class="upload-bar" wx:if="{{flushing}}">
       <progress percent="{{progress}}" stroke-width="6" activeColor="#2b6cb0" />
       <view class="upload-text">{{progressText}}</view>

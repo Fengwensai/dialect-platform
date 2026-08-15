@@ -209,6 +209,10 @@
   margin: 8rpx 0;
 }
 
+.timer-warn {
+  color: #e53e3e;
+}
+
 .format-tip {
   font-size: 24rpx;
   color: #a0aec0;

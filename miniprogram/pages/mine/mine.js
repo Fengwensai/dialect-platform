@@ -26,6 +26,7 @@ Page({
     profileText: '', // 性别 · 年龄段 摘要（未填为空）
     // 常用功能
     stats: { total: 0, pending: 0, uploading: 0, done: 0, error: 0 },
+    autoUpload: true, // 保存后自动上传（③，默认开，queue.getAutoUpload 同步）
     flushing: false,
     progress: 0,
     progressText: '',
@@ -41,7 +42,13 @@ Page({
     this.refreshUser()
     this.loadProvince()
     this.refreshStats()
+    this.setData({ autoUpload: queue.getAutoUpload() })
     this.loadProgress().catch(() => {}) // 进页静默拉一次；失败不阻塞页面
+  },
+
+  /** ③ 保存后自动上传开关 */
+  onToggleAutoUpload(e) {
+    queue.setAutoUpload(e.detail.value)
   },
 
   onPullDownRefresh() {
@@ -175,7 +182,7 @@ Page({
     wx.showModal({
       title: '使用说明',
       content:
-        '1. 首页点「领取任务」选词条，用家乡话朗读（最长 60 秒，自动停止）\n2. 录音后可试听、重录，满意再「保存入队」\n3. 录音进入本地队列，在「我的」或「录音队列」点「一键上传」提交\n4. 后台审核后，「审核进度」显示 已通过 / 待审核 / 需重录',
+        '1. 首页点「领取任务」选词条，用家乡话朗读（最长 60 秒，自动停止）\n2. 录音后可试听、重录，满意再「保存入队」\n3. 录音保存后自动上传（可在「我的」关闭）；失败项在「录音队列」点「重试」\n4. 后台审核后，「审核进度」显示 已通过 / 待审核 / 需重录',
       showCancel: false
     })
   },

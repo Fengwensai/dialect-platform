@@ -36,7 +36,8 @@ Page({
     fileSizeText: '',
     saved: false,
     posIndex: 0, // 词条位置「第 x / y 条」（连续录音定位用）
-    posTotal: 0
+    posTotal: 0,
+    warn: false // ④ 最后 10 秒计时器变红提示
   },
 
   onLoad(options) {
@@ -247,7 +248,8 @@ Page({
       wavPath: '',
       durationMs: 0,
       fileSizeText: '',
-      saved: false
+      saved: false,
+      warn: false
     })
   },
 
@@ -260,7 +262,8 @@ Page({
   // —— 录音 ——
   start() {
     if (this.data.state === 'recording') return
-    this.setData({ state: 'recording', elapsed: 0, display: '0:00', saved: false })
+    this.setData({ state: 'recording', elapsed: 0, display: '0:00', saved: false, warn: false })
+    this._warned = false
     if (this._audio) this._audio.stop()
     this.enableBackGuard()
 
@@ -270,6 +273,12 @@ Page({
       if (elapsed >= MAX_MS) {
         this.stop()
         return
+      }
+      // ④ 最后 10 秒：计时器变红 + 一次性 toast 预告
+      if (elapsed >= MAX_MS - 10000 && !this._warned) {
+        this._warned = true
+        this.setData({ warn: true })
+        wx.showToast({ title: '最后 10 秒', icon: 'none' })
       }
       this.setData({ display: formatDuration(elapsed) })
     }, 200)
@@ -373,7 +382,8 @@ Page({
       durationMs: 0,
       fileSizeText: '',
       display: '0:00',
-      saved: false
+      saved: false,
+      warn: false
     })
   },
 
@@ -393,8 +403,20 @@ Page({
       return
     }
     this.disableBackGuard()
-    queue.enqueue({ taskId, wordId, content, wavPath, durationMs })
+    const id = queue.enqueue({ taskId, wordId, content, wavPath, durationMs })
     this.setData({ saved: true })
+
+    // ③ 自动上传（默认开）：保存后立即传这一条，不打断连续录音；失败退回队列
+    // （可一键上传/重试/下次保存兜底）。延迟 toast 让「已保存，继续下一条」先完整展示。
+    if (queue.getAutoUpload()) {
+      queue.uploadOne(id, { onItem: () => {} }).then((r) => {
+        if (r && r.fail) {
+          setTimeout(() => {
+            wx.showToast({ title: '上传失败，已退回队列', icon: 'none', duration: 2000 })
+          }, 1500)
+        }
+      })
+    }
 
     // 连续录音：保存成功后自动跳同任务下一条未录词条（停在待录音状态，用户点「开始录音」）
     const hasList = !!(this._wordList && this._wordList.length)

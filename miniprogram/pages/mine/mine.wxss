@@ -125,6 +125,10 @@
   background: #909399;
 }
 
+.func-icon-auto {
+  background: #319795;
+}
+
 .func-info {
   flex: 1;
   margin-left: 24rpx;

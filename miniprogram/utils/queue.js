@@ -2,7 +2,8 @@
  * 本地缓存队列（重点）。
  *
  * 双持久化：元数据 wx.setStorageSync('MP_RECORD_QUEUE')，音频文件存
- * USER_DATA_PATH/records/。上传完全手动：用户在队列页/我的页点「一键上传」；重录覆盖。
+ * USER_DATA_PATH/records/。上传默认「保存后自动」（我的页可关），失败/离线项
+ * 回退到队列页/我的页「一键上传」；重录覆盖。
  *
  * 队列项结构：
  * { id, taskId, wordId, content, wavPath, durationMs, createdAt,
@@ -12,6 +13,7 @@
 const uploader = require('./uploader')
 
 const QUEUE_KEY = 'MP_RECORD_QUEUE'
+const AUTO_UPLOAD_KEY = 'MP_AUTO_UPLOAD'
 const RECORDS_DIR = wx.env.USER_DATA_PATH + '/records'
 
 let flushing = false // 防重入
@@ -159,6 +161,32 @@ function _uploadOne(item, opts) {
 }
 
 /**
+ * 自动上传开关（③：保存后立即上传，默认开）。
+ * 未设置过（getStorageSync 返回 ''）视为开；显式 setAutoUpload(false) 后才关。
+ */
+function getAutoUpload() {
+  return wx.getStorageSync(AUTO_UPLOAD_KEY) !== false
+}
+
+function setAutoUpload(v) {
+  wx.setStorageSync(AUTO_UPLOAD_KEY, !!v)
+}
+
+/**
+ * 单条立即上传（③自动上传用）：保存后直接传这一条，不打断连续录音。
+ * 只传 pending 项；正在批量上传（flushing）时跳过，留待下次触发（避免双传产生重复录音）。
+ * @returns {Promise<{ok:number, fail:number, skipped?:boolean}>}
+ */
+function uploadOne(id, opts) {
+  if (flushing) return Promise.resolve({ ok: 0, fail: 0, skipped: true })
+  const it = _load().find((x) => x.id === id)
+  if (!it || it.status !== 'pending') {
+    return Promise.resolve({ ok: 0, fail: 0, skipped: true })
+  }
+  return _uploadOne(it, opts)
+}
+
+/**
  * 重试单条：把 error/claimLost 项改回 pending 并立即重新上传（不删本地文件、不用重录）。
  * @param {string} id 队列项 id
  * @param {object} [opts] { onItem?(item, res, err) }
@@ -266,6 +294,9 @@ function init() {
 module.exports = {
   QUEUE_KEY,
   RECORDS_DIR,
+  getAutoUpload,
+  setAutoUpload,
+  uploadOne,
   enqueue,
   list,
   count,

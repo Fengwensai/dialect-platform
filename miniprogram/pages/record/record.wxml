@@ -72,7 +72,7 @@
       <view class="status-chip state-{{state}}">
         {{state === 'idle' ? '待录音' : (state === 'recording' ? '录音中' : '已录制')}}
       </view>
-      <view class="timer">{{display}}</view>
+      <view class="timer {{warn ? 'timer-warn' : ''}}">{{display}}</view>
       <view class="format-tip">PCM 16kHz · 单声道 · 16bit · 最长 60s</view>
 
       <block wx:if="{{state === 'idle'}}">
