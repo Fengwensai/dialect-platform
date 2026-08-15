@@ -32,6 +32,7 @@
             <text class="tr-tag">方</text>{{item.dialect_transcript}}
           </view>
         </view>
+        <view class="word-redo" wx:if="{{item.redoReason}}">需重录 · 原因：{{item.redoReason}}</view>
       </view>
       <view class="word-side">
         <view class="chip chip-{{item.chip}}">{{item.chipText}}</view>

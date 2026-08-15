@@ -17,5 +17,14 @@ App({
     // 初始化队列：确保录音目录存在。上传默认「保存后自动」（我的页可关），
     // 失败/离线项可回退到队列页/我的页「一键上传」。
     queue.init()
+
+    // 本轮2 断网自动补传：网络恢复且「保存后自动上传」开着时，静默补传离线积压的队列
+    if (typeof wx.onNetworkStatusChange === 'function') {
+      wx.onNetworkStatusChange((res) => {
+        if (res.isConnected && res.networkType !== 'none' && queue.getAutoUpload()) {
+          queue.flush().catch(() => {})
+        }
+      })
+    }
   }
 })

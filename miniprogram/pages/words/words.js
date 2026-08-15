@@ -80,6 +80,8 @@ Page({
           } else if (st === 'rejected') {
             chip = 'reject'
             chipText = '需重录'
+            // 本轮1 驳回原因透出：仅当本地没有重录待传时展示（已重录则旧原因作废）
+            if (!w.localStatus) w.redoReason = (w.reject_reasons || []).join('、')
           } else if (st === 'approved') {
             chip = 'done'
             chipText = '已通过'

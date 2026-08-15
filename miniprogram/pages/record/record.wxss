@@ -159,6 +159,17 @@
   margin-top: 12rpx;
 }
 
+/* 本轮1 需重录原因（被驳回词条进录音页） */
+.word-info-redo {
+  margin-top: 12rpx;
+  padding: 8rpx 16rpx;
+  background: #fdeaea;
+  color: #e53e3e;
+  font-size: 24rpx;
+  border-radius: 10rpx;
+  border-left: 6rpx solid #e53e3e;
+}
+
 .word-info-switch {
   position: absolute;
   top: 28rpx;

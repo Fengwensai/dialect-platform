@@ -30,6 +30,7 @@ from ..core.agreements import (
     require_agreements_accepted,
 )
 from ..core.config import settings
+from ..core.reject_reasons import LABELS as REJECT_LABELS
 from ..core.deps import get_current_speaker, get_current_speaker_optional
 from ..core.security import create_access_token
 from ..db import get_db
@@ -825,6 +826,12 @@ def mp_task_words(
         if w is None or it.word_id not in my_claim_set:
             continue
         r = rec_map.get(it.word_id)
+        # 驳回原因：仅 rejected 时返回人类可读 label（key 逗号串 → label 列表）
+        reject_reasons = None
+        if r is not None and r.status == "rejected" and r.reject_reasons:
+            reject_reasons = [
+                REJECT_LABELS[k] for k in r.reject_reasons.split(",") if k in REJECT_LABELS
+            ]
         out_items.append(
             MpWordOut(
                 word_id=w.id,
@@ -838,6 +845,7 @@ def mp_task_words(
                 recorded=r is not None,
                 recording_id=r.id if r else None,
                 status=r.status if r else None,
+                reject_reasons=reject_reasons,
             )
         )
     return {

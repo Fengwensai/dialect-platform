@@ -16,6 +16,11 @@ function chipOf(w) {
   return { cls: 'todo', text: '未录' }
 }
 
+/** 驳回原因 label 串（本轮1：仅 rejected 时返回，否则空串） */
+function reasonOf(w) {
+  return w && w.status === 'rejected' ? (w.reject_reasons || []).join('、') : ''
+}
+
 Page({
   data: {
     state: 'idle', // idle | recording | recorded
@@ -38,7 +43,8 @@ Page({
     saved: false,
     posIndex: 0, // 词条位置「第 x / y 条」（连续录音定位用）
     posTotal: 0,
-    warn: false // ④ 最后 10 秒计时器变红提示
+    warn: false, // ④ 最后 10 秒计时器变红提示
+    redoReason: '' // 本轮1 需重录原因（被驳回词条进录音页时提示）
   },
 
   onLoad(options) {
@@ -132,7 +138,8 @@ Page({
       example_sentence: w.example_sentence || '',
       posIndex: idx + 1,
       posTotal: this.data.wordOptions.length,
-      pickMode: false
+      pickMode: false,
+      redoReason: reasonOf(w)
     })
   },
 
@@ -154,7 +161,8 @@ Page({
           example_sentence: w.example_sentence || '',
           taskName: (data.task && data.task.name) || this.data.taskName,
           posIndex: idx + 1,
-          posTotal: list.length
+          posTotal: list.length,
+          redoReason: reasonOf(w)
         })
       })
       .catch(() => {})
@@ -252,7 +260,8 @@ Page({
       durationMs: 0,
       fileSizeText: '',
       saved: false,
-      warn: false
+      warn: false,
+      redoReason: reasonOf(next)
     })
   },
 
