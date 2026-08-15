@@ -826,12 +826,16 @@ def mp_task_words(
         if w is None or it.word_id not in my_claim_set:
             continue
         r = rec_map.get(it.word_id)
-        # 驳回原因：仅 rejected 时返回人类可读 label（key 逗号串 → label 列表）
+        # 驳回原因/备注：仅 rejected 时返回（label 由 key 逗号串映射成人类可读；备注为自由文本，
+        # 通过/待审时一律不透出，避免把审核备注泄给发音人）
         reject_reasons = None
-        if r is not None and r.status == "rejected" and r.reject_reasons:
-            reject_reasons = [
-                REJECT_LABELS[k] for k in r.reject_reasons.split(",") if k in REJECT_LABELS
-            ]
+        review_note = None
+        if r is not None and r.status == "rejected":
+            if r.reject_reasons:
+                reject_reasons = [
+                    REJECT_LABELS[k] for k in r.reject_reasons.split(",") if k in REJECT_LABELS
+                ]
+            review_note = r.review_note or None
         out_items.append(
             MpWordOut(
                 word_id=w.id,
@@ -846,6 +850,7 @@ def mp_task_words(
                 recording_id=r.id if r else None,
                 status=r.status if r else None,
                 reject_reasons=reject_reasons,
+                review_note=review_note,
             )
         )
     return {

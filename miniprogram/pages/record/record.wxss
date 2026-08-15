@@ -170,6 +170,17 @@
   border-left: 6rpx solid #e53e3e;
 }
 
+/* 审核备注（自由文本，补充原因细节） */
+.word-info-note {
+  margin-top: 8rpx;
+  padding: 8rpx 16rpx;
+  background: #fef3e2;
+  color: #b26a00;
+  font-size: 24rpx;
+  border-radius: 10rpx;
+  border-left: 6rpx solid #f5c97a;
+}
+
 .word-info-switch {
   position: absolute;
   top: 28rpx;

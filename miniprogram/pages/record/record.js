@@ -21,6 +21,11 @@ function reasonOf(w) {
   return w && w.status === 'rejected' ? (w.reject_reasons || []).join('、') : ''
 }
 
+/** 审核备注（自由文本，仅 rejected 时返回，补充原因细节） */
+function noteOf(w) {
+  return w && w.status === 'rejected' && w.review_note ? w.review_note : ''
+}
+
 Page({
   data: {
     state: 'idle', // idle | recording | recorded
@@ -45,6 +50,7 @@ Page({
     posTotal: 0,
     warn: false, // ④ 最后 10 秒计时器变红提示
     redoReason: '', // 本轮1 需重录原因（被驳回词条进录音页时提示）
+    reviewNote: '', // 审核备注（自由文本，补充原因细节）
     qualityWarn: '' // 本轮3 本地质量自检提示（过短/近静音/太小）
   },
 
@@ -141,7 +147,8 @@ Page({
       posIndex: idx + 1,
       posTotal: this.data.wordOptions.length,
       pickMode: false,
-      redoReason: reasonOf(w)
+      redoReason: reasonOf(w),
+      reviewNote: noteOf(w)
     })
   },
 
@@ -164,7 +171,8 @@ Page({
           taskName: (data.task && data.task.name) || this.data.taskName,
           posIndex: idx + 1,
           posTotal: list.length,
-          redoReason: reasonOf(w)
+          redoReason: reasonOf(w),
+          reviewNote: noteOf(w)
         })
       })
       .catch(() => {})
@@ -265,6 +273,7 @@ Page({
       saved: false,
       warn: false,
       redoReason: reasonOf(next),
+      reviewNote: noteOf(next),
       qualityWarn: ''
     })
   },

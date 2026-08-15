@@ -109,6 +109,7 @@ class MpWordOut(BaseModel):
     recording_id: int | None = None
     status: str | None = None  # 该词条最新录音状态：pending/approved/rejected；未录为 None
     reject_reasons: list[str] | None = None  # 驳回原因 label 列表（仅 rejected 时返回，发音人据此重录；后台完善 2 多选落库，这里转人类可读）
+    review_note: str | None = None  # 审核备注（自由文本，仅 rejected 时返回，补充原因细节）
 
 
 class MpClaimStats(BaseModel):
