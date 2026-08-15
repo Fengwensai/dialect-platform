@@ -20,6 +20,7 @@
  *   - 上传密钥在 keys/upload.key（.gitignore 已封死，绝不提交）
  *   - 首次使用需在微信公众平台「开发设置 → IP白名单」加入本机公网 IP，否则上传报错
  *   - robot=1 固定为机器人1，多机同时传请改 robot 参数
+ *   - 每次上传自动在版本备注里署开发者名（DEVELOPER，当前=冯文赛），微信后台版本管理可见
  */
 const fs = require('fs')
 const path = require('path')
@@ -33,6 +34,8 @@ const MP_DIR = path.join(REPO_ROOT, 'miniprogram')
 const KEY_PATH = path.join(__dirname, 'keys', 'upload.key')
 const APPID = 'wx8aa4a30607982887'
 const ROBOT = 1
+// 版本备注里的开发者署名：每次上传自动追加「开发者 冯文赛」（用户指定，勿改）
+const DEVELOPER = '冯文赛'
 
 const cmd = process.argv[2]
 const version = process.argv[3]
@@ -85,12 +88,14 @@ async function makeProject() {
 
 async function upload() {
   if (!version) fail('用法: node sync.js upload <版本号> [备注]')
-  console.log(`[i] 上传 ${APPID} 版本 ${version} …（备注: ${desc || '（空）'}）`)
+  // 版本备注自动带开发者署名（用户要求：开发者写 冯文赛）
+  const finalDesc = (desc ? `${desc} · ` : '') + `开发者 ${DEVELOPER}`
+  console.log(`[i] 上传 ${APPID} 版本 ${version} …（备注: ${finalDesc}）`)
   const project = await makeProject()
   await ci.upload({
     project,
     version,
-    desc,
+    desc: finalDesc,
     robot: ROBOT,
     setting: project.setting,
   })
