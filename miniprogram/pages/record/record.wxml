@@ -100,6 +100,7 @@
       时长 {{display}}<block wx:if="{{fileSizeText}}"> · 约 {{fileSizeText}}</block>。
       先试听，满意后再「保存入队」；不满意点「重录」。
     </view>
+    <view class="hint hint-warn" wx:if="{{state === 'recorded' && qualityWarn}}">⚠ {{qualityWarn}}，建议重录</view>
   </block>
 
   <!-- 隐私授权弹窗（麦克风录音触发） -->

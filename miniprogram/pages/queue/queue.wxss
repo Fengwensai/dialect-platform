@@ -14,6 +14,13 @@
   padding: 20rpx;
 }
 
+/* 本轮5 本地存储占用提示 */
+.storage-line {
+  font-size: 24rpx;
+  color: #909399;
+  margin-bottom: 16rpx;
+}
+
 .list {
   display: flex;
   flex-direction: column;

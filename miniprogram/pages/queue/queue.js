@@ -1,6 +1,6 @@
 // 队列页：列表 / 逐条试听·重录·删除 / 批量删除 / 一键上传 / 清空已完成
 const queue = require('../../utils/queue')
-const { formatDuration } = require('../../utils/fmt')
+const { formatDuration, formatBytes } = require('../../utils/fmt')
 
 const STATUS_TEXT = {
   pending: '待上传',
@@ -17,7 +17,9 @@ Page({
     flushing: false,
     selectMode: false, // 批量删除模式
     selected: {}, // id -> true，选中集合（对象便于快速查找）
-    selectedCount: 0
+    selectedCount: 0,
+    storageText: '', // 本轮5 本地录音占用
+    cleanableCount: 0 // 本轮5 可清理（已完成/失效）条数
   },
 
   onShow() {
@@ -45,10 +47,14 @@ Page({
         checked: !!selected[it.id]
       })
     )
+    // 本轮5 存储占用 + 可清理条数
+    const used = queue.storageUsed()
     this.setData({
       items,
       pendingCount: items.filter((x) => x.status === 'pending').length,
-      selectedCount: items.filter((x) => x.checked).length
+      selectedCount: items.filter((x) => x.checked).length,
+      storageText: formatBytes(used.bytes) + (used.files ? ' · ' + used.files + ' 个文件' : ''),
+      cleanableCount: items.filter((x) => x.status === 'done' || x.status === 'claimLost').length
     })
   },
 
@@ -197,9 +203,13 @@ Page({
       })
   },
 
-  clearDone() {
-    queue.clearDone()
+  /** 本轮5 清理已完成/失效项（done + claimLost），释放本地空间 */
+  onCleanup() {
+    const n = queue.cleanup()
     this.refresh()
-    wx.showToast({ title: '已清理', icon: 'success' })
+    wx.showToast({
+      title: n ? '已清理 ' + n + ' 条' : '没有可清理项',
+      icon: n ? 'success' : 'none'
+    })
   }
 })

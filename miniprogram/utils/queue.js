@@ -237,6 +237,47 @@ function clearDone() {
 }
 
 /**
+ * 统计本地录音文件占用（本轮5）：只计 wav 仍存在的项（成功上传后已删的不计）。
+ * @returns {{bytes:number, files:number}}
+ */
+function storageUsed() {
+  const fs = wx.getFileSystemManager()
+  let bytes = 0
+  let files = 0
+  _load().forEach((x) => {
+    if (!x.wavPath) return
+    try {
+      const st = fs.statSync(x.wavPath)
+      bytes += st.size || 0
+      files++
+    } catch (e) {
+      // 文件已删（成功上传/重录覆盖），跳过
+    }
+  })
+  return { bytes, files }
+}
+
+/**
+ * 清理释放空间（本轮5）：删「已完成」与「未领取/失效」项及其本地文件。
+ * 已完成文件本已删（只清元数据）；claimLost 的录音无法上传，删掉释放真空间。
+ * pending/uploading/error 保留（录音还需要上传/重试）。
+ * @returns {number} 清理条数
+ */
+function cleanup() {
+  let items = _load()
+  let removed = 0
+  items.forEach((x) => {
+    if (x.status === 'done' || x.status === 'claimLost') {
+      if (x.wavPath) _unlink(x.wavPath)
+      removed++
+    }
+  })
+  items = items.filter((x) => x.status !== 'done' && x.status !== 'claimLost')
+  _save(items)
+  return removed
+}
+
+/**
  * 一键提交：顺序上传所有 pending，逐个成功即删本地文件。
  * 失败项保留并标记 error，不中断后续；正在上传时不重入。
  * @param {object} [opts] { onProgress?(percent, msg), onItem?(item, result, err) }
@@ -308,6 +349,8 @@ module.exports = {
   remove,
   removeMany,
   clearDone,
+  storageUsed,
+  cleanup,
   flush,
   retry,
   init

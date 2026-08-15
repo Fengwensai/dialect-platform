@@ -44,7 +44,8 @@ Page({
     posIndex: 0, // 词条位置「第 x / y 条」（连续录音定位用）
     posTotal: 0,
     warn: false, // ④ 最后 10 秒计时器变红提示
-    redoReason: '' // 本轮1 需重录原因（被驳回词条进录音页时提示）
+    redoReason: '', // 本轮1 需重录原因（被驳回词条进录音页时提示）
+    qualityWarn: '' // 本轮3 本地质量自检提示（过短/近静音/太小）
   },
 
   onLoad(options) {
@@ -67,6 +68,7 @@ Page({
 
   onUnload() {
     this.disableBackGuard()
+    this._setKeepScreen(false)
     if (this.data.state === 'recording') {
       recorder.stopRecording().catch(() => {})
     }
@@ -245,6 +247,7 @@ Page({
       this._audio.destroy()
       this._audio = null
     }
+    this._setKeepScreen(false)
     const list = this._wordList || []
     const idx = list.findIndex((w) => String(w.word_id) === String(next.word_id))
     this.setData({
@@ -261,7 +264,8 @@ Page({
       fileSizeText: '',
       saved: false,
       warn: false,
-      redoReason: reasonOf(next)
+      redoReason: reasonOf(next),
+      qualityWarn: ''
     })
   },
 
@@ -274,10 +278,11 @@ Page({
   // —— 录音 ——
   start() {
     if (this.data.state === 'recording') return
-    this.setData({ state: 'recording', elapsed: 0, display: '0:00', saved: false, warn: false })
+    this.setData({ state: 'recording', elapsed: 0, display: '0:00', saved: false, warn: false, qualityWarn: '' })
     this._warned = false
     if (this._audio) this._audio.stop()
     this.enableBackGuard()
+    this._setKeepScreen(true) // ④ 录音中保持亮屏
 
     this._t0 = Date.now()
     this._timer = setInterval(() => {
@@ -299,6 +304,7 @@ Page({
       clearInterval(this._timer)
       this._timer = null
       this.disableBackGuard()
+      this._setKeepScreen(false)
       this.setData({ state: 'idle', display: '0:00' })
       const msg = (err && (err.errMsg || err.message)) || '未知错误'
       console.error('[record] 录音启动失败', err)
@@ -327,6 +333,7 @@ Page({
     clearInterval(this._timer)
     this._timer = null
     this.disableBackGuard()
+    this._setKeepScreen(false) // ④ 停止录音恢复自动锁屏
     recorder
       .stopRecording()
       .then((res) => {
@@ -357,7 +364,10 @@ Page({
           fileSizeText: formatBytes(res.fileSize),
           display: formatDuration(res.durationMs)
         })
+        // 本轮3：转好 WAV 后本地自检质量（过短/近静音/音量太小），异步补提示
+        return this._analyzeQuality()
       })
+      .then((warn) => this.setData({ qualityWarn: warn || '' }))
       .catch((err) => {
         this.setData({ state: 'idle', display: '0:00' })
         wx.showToast({
@@ -366,6 +376,53 @@ Page({
           duration: 3000
         })
       })
+  },
+
+  // —— 本轮3 本地录音质量自检（口径对齐后端 QUALITY_*：<0.8s 过短 / 静音率≥0.9 / RMS<-40dB） ——
+  _analyzeQuality() {
+    const p = this.data.wavPath
+    if (!p) return Promise.resolve('')
+    return new Promise((resolve) => {
+      wx.getFileSystemManager().readFile({
+        filePath: p,
+        success: (res) => {
+          try {
+            const dv = new DataView(res.data)
+            const bytes = dv.byteLength
+            const start = 44 // WAV 44 字节 RIFF 头
+            const n = Math.floor((bytes - start) / 2)
+            if (n <= 0) return resolve('')
+            let sumSq = 0
+            let silent = 0
+            for (let i = 0; i < n; i++) {
+              const a = Math.abs(dv.getInt16(start + i * 2, true)) / 32768
+              if (a < 0.02) silent++
+              sumSq += a * a
+            }
+            const rms = Math.sqrt(sumSq / n)
+            const rmsDb = 20 * Math.log10(rms + 1e-12)
+            const silenceRatio = silent / n
+            const warn = []
+            if (this.data.durationMs < 800) warn.push('录音过短（不足 0.8 秒），可能没录上')
+            if (silenceRatio >= 0.9) warn.push('几乎静音，请靠近麦克风再录')
+            else if (rmsDb < -40) warn.push('音量太小，请靠近麦克风再录')
+            resolve(warn.join('；'))
+          } catch (e) {
+            resolve('')
+          }
+        },
+        fail: () => resolve('')
+      })
+    })
+  },
+
+  // —— 本轮4 录音保持亮屏（防录到一半锁屏中断） ——
+  _setKeepScreen(on) {
+    try {
+      wx.setKeepScreenOn({ keepScreenOn: !!on })
+    } catch (e) {
+      // 忽略
+    }
   },
 
   // —— 试听 / 重录 / 保存 ——
@@ -380,6 +437,7 @@ Page({
   retry() {
     this.disableBackGuard()
     if (this._audio) this._audio.stop()
+    this._setKeepScreen(false)
     // 已保存的文件归队列所有，不删；未保存的临时文件清理掉
     if (!this.data.saved && this.data.wavPath) {
       try {
@@ -395,12 +453,13 @@ Page({
       fileSizeText: '',
       display: '0:00',
       saved: false,
-      warn: false
+      warn: false,
+      qualityWarn: ''
     })
   },
 
   save() {
-    const { taskId, wordId, content, wavPath, durationMs } = this.data
+    const { taskId, wordId, content, wavPath } = this.data
     if (!wavPath) return
     if (!/^[1-9]\d*$/.test(String(taskId))) {
       wx.showToast({ title: '请选择有效的任务', icon: 'none' })
@@ -414,6 +473,24 @@ Page({
       wx.showToast({ title: '请选择词条', icon: 'none' })
       return
     }
+    // 本轮3 质量自检：过短/近静音/音量太小时先确认，避免无效录音进队列
+    if (this.data.qualityWarn) {
+      wx.showModal({
+        title: '录音可能有问题',
+        content: this.data.qualityWarn + '，建议重录。仍要保存吗？',
+        confirmText: '仍要保存',
+        cancelText: '重录',
+        success: (r) => {
+          if (r.confirm) this._doSave()
+        }
+      })
+      return
+    }
+    this._doSave()
+  },
+
+  _doSave() {
+    const { taskId, wordId, content, wavPath, durationMs } = this.data
     this.disableBackGuard()
     const id = queue.enqueue({
       taskId,

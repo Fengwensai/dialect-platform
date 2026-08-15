@@ -9,8 +9,13 @@
       {{flushing ? '上传中…' : '一键上传 (' + pendingCount + ')'}}
     </button>
     <button class="btn-ghost small" bindtap="toggleSelectMode">批量删除</button>
-    <button class="btn-ghost small" bindtap="clearDone">清空已完成</button>
+    <button class="btn-ghost small" bindtap="onCleanup" disabled="{{cleanableCount === 0}}">
+      清理已完成/失效
+    </button>
   </view>
+
+  <!-- 本轮5 本地存储占用提示 -->
+  <view class="storage-line" wx:if="{{!selectMode}}">本地占用 {{storageText}}</view>
 
   <!-- 选择模式工具栏 -->
   <view class="toolbar select-toolbar" wx:else>

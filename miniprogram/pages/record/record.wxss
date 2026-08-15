@@ -251,3 +251,9 @@
   color: #606266;
   line-height: 1.8;
 }
+
+/* 本轮3 录音质量自检提示（过短/近静音/音量太小） */
+.hint-warn {
+  background: #fdeaea;
+  color: #e53e3e;
+}
