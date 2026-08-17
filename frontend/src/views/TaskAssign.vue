@@ -126,24 +126,28 @@
         当前页有 <b>{{ occupiedCount }}</b> 条词条已占用，不可勾选
       </div>
 
-      <el-table ref="wordsTable" :data="words" row-key="id" v-loading="wordsLoading" border size="small" max-height="360" @selection-change="onSelectionChange">
-        <el-table-column type="selection" width="46" :reserve-selection="true" :selectable="(row) => !row.occupied" />
-        <el-table-column prop="code" label="编号" width="100" show-overflow-tooltip />
-        <el-table-column prop="dialect_point" label="方言点" width="150" show-overflow-tooltip />
-        <el-table-column label="词条内容" min-width="140" show-overflow-tooltip>
-          <template #default="{ row }">
-            {{ row.content }}
-            <el-tag v-if="row.occupied" size="small" type="info" style="margin-left: 4px">已占用</el-tag>
+      <div class="words-v2-wrap">
+        <el-auto-resizer>
+          <template #default="{ height, width }">
+            <el-table-v2
+              v-loading="wordsLoading"
+              :columns="wordColumns"
+              :data="words"
+              :width="width"
+              :height="height"
+              row-key="id"
+              border
+            >
+              <template #empty>
+                <div class="table-empty">
+                  <p>当前筛选下暂无词条</p>
+                  <p class="muted">可调整区划或搜索关键词，或先到「词条库」录入词条</p>
+                </div>
+              </template>
+            </el-table-v2>
           </template>
-        </el-table-column>
-        <el-table-column prop="example_sentence" label="例句" min-width="180" show-overflow-tooltip />
-        <template #empty>
-          <div class="table-empty">
-            <p>当前筛选下暂无词条</p>
-            <p class="muted">可调整区划或搜索关键词，或先到「词条库」录入词条</p>
-          </div>
-        </template>
-      </el-table>
+        </el-auto-resizer>
+      </div>
       <el-pagination
         class="pager"
         small
@@ -152,7 +156,7 @@
         :total="wordTotal"
         :page-size="wordPageSize"
         :current-page="wordPage"
-        :page-sizes="[20, 50, 100, 200]"
+        :page-sizes="[20, 50, 100, 200, 500]"
         @current-change="(p) => { wordPage = p; loadWords() }"
         @size-change="(s) => { wordPageSize = s; wordPage = 1; loadWords() }"
       />
@@ -400,8 +404,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
+import { ElCheckbox, ElMessage, ElMessageBox, ElTag } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import request from '../api/request'
 import { useAuthStore } from '../stores/auth'
@@ -420,7 +424,6 @@ const teams = ref([]) // 团队码列表（省管理员仅本省）
 const selectedTeamCode = ref(null) // 创建表单选中的团队码
 
 const words = ref([])
-const wordsTable = ref(null)
 const wordsLoading = ref(false)
 const wordTotal = ref(0)
 const wordPage = ref(1)
@@ -532,17 +535,6 @@ async function loadWords() {
   }
 }
 
-function onSelectionChange(rows) {
-  const next = new Map()
-  rows.forEach((r) => next.set(r.id, r))
-  // 合并到全局已选（保留其它页的勾选）
-  selectedWords.value.forEach((w, id) => {
-    const inCurrentPage = words.value.some((x) => x.id === id)
-    if (!inCurrentPage) next.set(id, w)
-  })
-  selectedWords.value = next
-}
-
 /** 已选词条清单（供抽屉展示）与当前页已占用数（提示不可勾选） */
 const selectedWordList = computed(() => [...selectedWords.value.values()])
 /** 已选词条按方言点分组：[[point, words[]], ...] */
@@ -555,30 +547,82 @@ const selectedByPoint = computed(() => {
   })
   return [...groups.entries()]
 })
+
+// —— el-table-v2 手动 checkbox 选择（无内置多选，跨页保留，占用行禁选）——
+function toggleRow(word, checked) {
+  if (checked) selectedWords.value.set(word.id, word)
+  else selectedWords.value.delete(word.id)
+}
+
+const currentPageSelectable = computed(() => words.value.filter((w) => !w.occupied))
+const currentPageAllChecked = computed(
+  () => currentPageSelectable.value.length > 0 && currentPageSelectable.value.every((w) => selectedWords.value.has(w.id))
+)
+const currentPageSomeChecked = computed(
+  () => !currentPageAllChecked.value && currentPageSelectable.value.some((w) => selectedWords.value.has(w.id))
+)
+
+/** 全选/取消当前页所有可选行，只影响当前页（跨页保留） */
+function toggleAllCurrentPage(checked) {
+  currentPageSelectable.value.forEach((w) => {
+    if (checked) selectedWords.value.set(w.id, w)
+    else selectedWords.value.delete(w.id)
+  })
+}
+
+/** el-table-v2 列配置（cellRenderer 收到 { rowData }，字段从 rowData 取） */
+const wordColumns = computed(() => [
+  {
+    key: 'selection',
+    title: '',
+    width: 45,
+    align: 'center',
+    cellRenderer: ({ rowData }) =>
+      h(ElCheckbox, {
+        modelValue: selectedWords.value.has(rowData.id),
+        disabled: rowData.occupied,
+        onChange: (val) => toggleRow(rowData, val)
+      }),
+    headerCellRenderer: () =>
+      h(ElCheckbox, {
+        modelValue: currentPageAllChecked.value,
+        indeterminate: currentPageSomeChecked.value,
+        onChange: (val) => toggleAllCurrentPage(val)
+      })
+  },
+  { key: 'code', dataKey: 'code', title: '编号', width: 100, showOverflowTooltip: true },
+  { key: 'dialect_point', dataKey: 'dialect_point', title: '方言点', width: 150, showOverflowTooltip: true },
+  {
+    key: 'content',
+    title: '词条内容',
+    width: 200,
+    cellRenderer: ({ rowData }) =>
+      h('span', { class: 'word-cell' }, [
+        rowData.content,
+        rowData.occupied
+          ? h(ElTag, { size: 'small', type: 'info', style: 'margin-left: 4px' }, () => '已占用')
+          : null
+      ])
+  },
+  { key: 'example_sentence', dataKey: 'example_sentence', title: '例句', width: 220, showOverflowTooltip: true }
+])
 const occupiedCount = computed(() => words.value.filter((w) => w.occupied).length)
 
 function clearSelection() {
   selectedWords.value = new Map()
-  wordsTable.value?.clearSelection()
   loadWords()
 }
 
-/** 已选清单：单个移除，并同步当前页勾选态 */
+/** 已选清单：单个移除（checkbox 受控于 selectedWords，删除后当前页勾选自动同步） */
 function removeSelectedWord(id) {
   selectedWords.value.delete(id)
-  const row = words.value.find((w) => w.id === id)
-  if (row) wordsTable.value?.toggleRowSelection(row, false)
 }
 
-/** 全选当前页所有行（表头全选同效果），不影响其它页已选；有占用被跳过时提示 */
+/** 全选当前页所有可选行（占用跳过），不影响其它页已选 */
 function selectPage() {
-  const table = wordsTable.value
-  if (!table) return
-  const selectableRows = words.value.filter((w) => !w.occupied)
-  const alreadyCheckedAll = selectableRows.length > 0 && selectableRows.every((w) => selectedWords.value.has(w.id))
-  table.toggleAllSelection()
+  toggleAllCurrentPage(true)
   const occ = words.value.filter((w) => w.occupied).length
-  if (!alreadyCheckedAll && occ) {
+  if (occ) {
     ElMessage.info(`已全选当前页，跳过 ${occ} 条已占用词条`)
   }
 }
@@ -616,9 +660,7 @@ async function selectAllFiltered() {
         { type: 'warning' }
       )
     } catch (e) { return }
-    const table = wordsTable.value
     selectable.forEach((w) => {
-      table.toggleRowSelection(w, true)
       selectedWords.value.set(w.id, w)
     })
     ElMessage.success(`已全选 ${selectable.length} 条${occupiedCount ? `（跳过 ${occupiedCount} 条已占用）` : ''}`)
@@ -991,6 +1033,15 @@ onMounted(async () => {
 }
 .table-empty p {
   margin: 4px 0;
+}
+.words-v2-wrap {
+  height: 380px;
+}
+.word-cell {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pager {
   margin-top: 10px;
