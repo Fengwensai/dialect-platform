@@ -92,25 +92,38 @@
       <template #header>
         <div class="card-header">
           <b>选择词条</b>
-          <span class="selected-info">已选 <b>{{ selectedWords.size }}</b> 条</span>
+          <span class="selected-info">
+            <template v-if="selectedWords.size">
+              已选 <b>{{ selectedWords.size }}</b> 条
+              <el-button link type="primary" @click="selectedVisible = true">查看清单</el-button>
+            </template>
+            <span v-else>未选词条</span>
+          </span>
         </div>
       </template>
 
       <div class="filter-bar">
-        <el-cascader
-          v-model="wordFilterRegion"
-          :options="regionOptions"
-          :props="cascaderProps"
-          placeholder="按区划筛选词条"
-          clearable
-          filterable
-          style="width: 300px"
-        />
-        <el-input v-model="wordKeyword" placeholder="搜索词条" clearable style="width: 200px" @keyup.enter="loadWords" />
-        <el-button type="primary" :icon="Search" @click="loadWords">筛选</el-button>
-        <el-button :disabled="!words.length" @click="selectPage">全选当前页</el-button>
-        <el-button :loading="selectingAll" @click="selectAllFiltered">跨页全选</el-button>
-        <el-button @click="clearSelection">清空已选</el-button>
+        <div class="filter-group">
+          <el-cascader
+            v-model="wordFilterRegion"
+            :options="regionOptions"
+            :props="cascaderProps"
+            placeholder="按区划筛选词条"
+            clearable
+            filterable
+            style="width: 300px"
+          />
+          <el-input v-model="wordKeyword" placeholder="搜索词条" clearable style="width: 200px" @keyup.enter="loadWords" />
+          <el-button type="primary" :icon="Search" @click="loadWords">筛选</el-button>
+        </div>
+        <div class="filter-group filter-group--ops">
+          <el-button :disabled="!words.length" @click="selectPage">全选当前页</el-button>
+          <el-button :loading="selectingAll" @click="selectAllFiltered">跨页全选</el-button>
+          <el-button @click="clearSelection">清空已选</el-button>
+        </div>
+      </div>
+      <div v-if="occupiedCount" class="occupied-hint">
+        当前页有 <b>{{ occupiedCount }}</b> 条词条已占用，不可勾选
       </div>
 
       <el-table ref="wordsTable" :data="words" row-key="id" v-loading="wordsLoading" border size="small" max-height="360" @selection-change="onSelectionChange">
@@ -142,6 +155,25 @@
         <el-button type="success" :loading="creating" :disabled="!selectedWords.size" @click="createTask(true)">创建并发布</el-button>
       </div>
     </el-card>
+
+    <!-- 已选词条清单（抽屉） -->
+    <el-drawer v-model="selectedVisible" title="已选词条清单" size="480px">
+      <div class="drawer-bar">
+        <span class="selected-info">已选 <b>{{ selectedWords.size }}</b> 条</span>
+        <el-button size="small" type="danger" plain :disabled="!selectedWords.size" @click="clearSelection">一键清空</el-button>
+      </div>
+      <el-table :data="selectedWordList" border size="small" max-height="520">
+        <el-table-column prop="code" label="编号" width="110" show-overflow-tooltip />
+        <el-table-column prop="dialect_point" label="方言点" width="150" show-overflow-tooltip />
+        <el-table-column prop="content" label="词条内容" min-width="150" show-overflow-tooltip />
+        <el-table-column label="操作" width="70" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="danger" @click="removeSelectedWord(row.id)">移除</el-button>
+          </template>
+        </el-table-column>
+        <template #empty>还没有已选词条</template>
+      </el-table>
+    </el-drawer>
 
     <!-- 任务列表 -->
     <el-card shadow="never">
@@ -371,7 +403,8 @@ const wordsLoading = ref(false)
 const wordTotal = ref(0)
 const wordPage = ref(1)
 const wordPageSize = ref(20)
-const selectedWords = ref(new Set())
+const selectedWords = ref(new Map()) // 已选词条：id -> 词条对象（清单展示/单个移除用）
+const selectedVisible = ref(false) // 已选词条清单抽屉
 const selectingAll = ref(false)
 
 const tasks = ref([])
@@ -478,20 +511,31 @@ async function loadWords() {
 }
 
 function onSelectionChange(rows) {
-  const next = new Set()
-  rows.forEach((r) => next.add(r.id))
+  const next = new Map()
+  rows.forEach((r) => next.set(r.id, r))
   // 合并到全局已选（保留其它页的勾选）
-  selectedWords.value.forEach((id) => {
-    const inCurrentPage = words.value.some((w) => w.id === id)
-    if (!inCurrentPage) next.add(id)
+  selectedWords.value.forEach((w, id) => {
+    const inCurrentPage = words.value.some((x) => x.id === id)
+    if (!inCurrentPage) next.set(id, w)
   })
   selectedWords.value = next
 }
 
+/** 已选词条清单（供抽屉展示）与当前页已占用数（提示不可勾选） */
+const selectedWordList = computed(() => [...selectedWords.value.values()])
+const occupiedCount = computed(() => words.value.filter((w) => w.occupied).length)
+
 function clearSelection() {
-  selectedWords.value = new Set()
+  selectedWords.value = new Map()
   wordsTable.value?.clearSelection()
   loadWords()
+}
+
+/** 已选清单：单个移除，并同步当前页勾选态 */
+function removeSelectedWord(id) {
+  selectedWords.value.delete(id)
+  const row = words.value.find((w) => w.id === id)
+  if (row) wordsTable.value?.toggleRowSelection(row, false)
 }
 
 /** 全选当前页所有行（表头全选同效果），不影响其它页已选 */
@@ -534,7 +578,7 @@ async function selectAllFiltered() {
     const table = wordsTable.value
     selectable.forEach((w) => {
       table.toggleRowSelection(w, true)
-      selectedWords.value.add(w.id)
+      selectedWords.value.set(w.id, w)
     })
     ElMessage.success(`已全选 ${selectable.length} 条${occupiedCount ? `（跳过 ${occupiedCount} 条已占用）` : ''}`)
   } finally {
@@ -559,7 +603,7 @@ async function createTask(publishAfter) {
       team_code: selectedTeamCode.value || null,
       required_audio_count: form.required_audio_count,
       claim_limit: form.claim_limit,
-      word_ids: [...selectedWords.value],
+      word_ids: [...selectedWords.value.keys()],
       is_demo: form.is_demo,
       deadline_at: toUtcIso(form.deadline_at)
     }
@@ -574,7 +618,7 @@ async function createTask(publishAfter) {
     form.description = ''
     form.is_demo = false
     form.deadline_at = null
-    selectedWords.value = new Set()
+    selectedWords.value = new Map()
     selectedTeamCode.value = null
     if (auth.isSuper) {
       taskRegion.value = []
@@ -845,7 +889,28 @@ onMounted(async () => {
 }
 .filter-bar {
   display: flex;
+  justify-content: space-between;
   gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.filter-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.filter-group--ops {
+  justify-content: flex-end;
+}
+.occupied-hint {
+  margin-bottom: 10px;
+  color: #909399;
+  font-size: 12px;
+}
+.drawer-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 10px;
 }
 .pager {
