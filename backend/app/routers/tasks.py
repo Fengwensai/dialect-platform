@@ -256,7 +256,8 @@ def task_words(
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
-    """任务包含的词条清单（按加入顺序）。"""
+    """任务包含的词条清单（按加入顺序）。occupied = 被其他非关闭任务占用（排除本任务自身），
+    供「从任务带入词条」跳过已占用、以及编辑草稿时标注相对其他任务的占用。"""
     _get_task(db, admin, batch_id)
     words = (
         db.query(WordLibrary)
@@ -265,7 +266,19 @@ def task_words(
         .order_by(TaskBatchItem.id)
         .all()
     )
-    return [WordOut.model_validate(w) for w in words]
+    occ_q = (
+        db.query(TaskBatchItem.word_id)
+        .join(TaskBatch, TaskBatch.id == TaskBatchItem.task_batch_id)
+        .filter(TaskBatch.status.in_(["draft", "published"]))
+        .filter(TaskBatchItem.task_batch_id != batch_id)
+    )
+    occupied_ids = {r[0] for r in occ_q.all()}
+    out = []
+    for w in words:
+        o = WordOut.model_validate(w)
+        o.occupied = w.id in occupied_ids
+        out.append(o)
+    return out
 
 
 @router.patch("/{batch_id}", response_model=TaskBatchOut)

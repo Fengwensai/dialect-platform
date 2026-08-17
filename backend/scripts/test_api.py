@@ -273,6 +273,15 @@ else:
     occ_tid_b = task_b.get("id")
     check("释放后原词条可再建任务B 200", r.status_code == 200 and occ_tid_b is not None, f"{task_b}")
 
+    # task_words 填充 occupied（相对其他任务，排除自身）：A 已关闭，其词条中 occ_ids[0] 被 B(draft) 占用 → true，其余 → false
+    r = requests.get(f"{BASE}/api/tasks/{occ_tid}/words", headers={"Authorization": f"Bearer {admin_token}"})
+    tw = {w["id"]: w["occupied"] for w in r.json()}
+    check(
+        "task_words 填充 occupied(相对其他任务)",
+        tw.get(occ_ids[0]) is True and all(tw.get(i) is False for i in occ_ids[1:]),
+        f"{tw}",
+    )
+
     # 清理自建夹具
     db = SessionLocal()
     try:
