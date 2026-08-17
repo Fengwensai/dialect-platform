@@ -137,6 +137,12 @@
           </template>
         </el-table-column>
         <el-table-column prop="example_sentence" label="例句" min-width="180" show-overflow-tooltip />
+        <template #empty>
+          <div class="table-empty">
+            <p>当前筛选下暂无词条</p>
+            <p class="muted">可调整区划或搜索关键词，或先到「词条库」录入词条</p>
+          </div>
+        </template>
       </el-table>
       <el-pagination
         class="pager"
@@ -156,23 +162,28 @@
       </div>
     </el-card>
 
-    <!-- 已选词条清单（抽屉） -->
-    <el-drawer v-model="selectedVisible" title="已选词条清单" size="480px">
+    <!-- 已选词条清单（抽屉，按方言点分组） -->
+    <el-drawer v-model="selectedVisible" title="已选词条清单" size="500px">
       <div class="drawer-bar">
-        <span class="selected-info">已选 <b>{{ selectedWords.size }}</b> 条</span>
+        <span class="selected-info">已选 <b>{{ selectedWords.size }}</b> 条 · {{ selectedByPoint.length }} 个方言点</span>
         <el-button size="small" type="danger" plain :disabled="!selectedWords.size" @click="clearSelection">一键清空</el-button>
       </div>
-      <el-table :data="selectedWordList" border size="small" max-height="520">
-        <el-table-column prop="code" label="编号" width="110" show-overflow-tooltip />
-        <el-table-column prop="dialect_point" label="方言点" width="150" show-overflow-tooltip />
-        <el-table-column prop="content" label="词条内容" min-width="150" show-overflow-tooltip />
-        <el-table-column label="操作" width="70" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="danger" @click="removeSelectedWord(row.id)">移除</el-button>
-          </template>
-        </el-table-column>
-        <template #empty>还没有已选词条</template>
-      </el-table>
+      <div v-if="!selectedWords.size" class="selected-empty">还没有已选词条</div>
+      <div v-for="[point, items] in selectedByPoint" :key="point" class="point-group">
+        <div class="point-header">
+          <span>{{ point }}</span>
+          <span class="selected-info">{{ items.length }} 条</span>
+        </div>
+        <el-table :data="items" border size="small" max-height="240">
+          <el-table-column prop="code" label="编号" width="100" show-overflow-tooltip />
+          <el-table-column prop="content" label="词条内容" min-width="170" show-overflow-tooltip />
+          <el-table-column label="操作" width="70" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="danger" @click="removeSelectedWord(row.id)">移除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
     </el-drawer>
 
     <!-- 任务列表 -->
@@ -343,7 +354,18 @@
         <el-table-column prop="dialect_point" label="方言点" width="150" show-overflow-tooltip />
         <el-table-column prop="content" label="词条内容" min-width="140" show-overflow-tooltip />
         <el-table-column prop="example_sentence" label="例句" min-width="180" show-overflow-tooltip />
+        <el-table-column label="占用" width="70">
+          <template #default="{ row }">
+            <el-tag v-if="row.occupied" type="info" size="small">占用</el-tag>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
       </el-table>
+      <template #footer>
+        <span class="tip">「全部加入已选」把该任务未被占用的词条并入当前选择，自动跳过已占用</span>
+        <el-button @click="wordsVisible = false">关闭</el-button>
+        <el-button type="primary" :disabled="!taskWords.length" @click="importFromTask">全部加入已选</el-button>
+      </template>
     </el-dialog>
 
     <!-- 领取管理（领取制）：查看每条领取，已录不可解绑，解绑后词条回池 -->
@@ -523,6 +545,16 @@ function onSelectionChange(rows) {
 
 /** 已选词条清单（供抽屉展示）与当前页已占用数（提示不可勾选） */
 const selectedWordList = computed(() => [...selectedWords.value.values()])
+/** 已选词条按方言点分组：[[point, words[]], ...] */
+const selectedByPoint = computed(() => {
+  const groups = new Map()
+  selectedWordList.value.forEach((w) => {
+    const k = w.dialect_point || '(未标方言点)'
+    if (!groups.has(k)) groups.set(k, [])
+    groups.get(k).push(w)
+  })
+  return [...groups.entries()]
+})
 const occupiedCount = computed(() => words.value.filter((w) => w.occupied).length)
 
 function clearSelection() {
@@ -538,22 +570,31 @@ function removeSelectedWord(id) {
   if (row) wordsTable.value?.toggleRowSelection(row, false)
 }
 
-/** 全选当前页所有行（表头全选同效果），不影响其它页已选 */
+/** 全选当前页所有行（表头全选同效果），不影响其它页已选；有占用被跳过时提示 */
 function selectPage() {
-  wordsTable.value?.toggleAllSelection()
+  const table = wordsTable.value
+  if (!table) return
+  const selectableRows = words.value.filter((w) => !w.occupied)
+  const alreadyCheckedAll = selectableRows.length > 0 && selectableRows.every((w) => selectedWords.value.has(w.id))
+  table.toggleAllSelection()
+  const occ = words.value.filter((w) => w.occupied).length
+  if (!alreadyCheckedAll && occ) {
+    ElMessage.info(`已全选当前页，跳过 ${occ} 条已占用词条`)
+  }
 }
 
 /** 跨页全选：抓取当前筛选下的全部词条（跨全部分页）并全部选中 */
 async function selectAllFiltered() {
   selectingAll.value = true
   try {
-    const params = { page_size: 200, keyword: wordKeyword.value, status: 'active', ...regionParams(wordFilterRegion.value) }
+    // 词条上千时用 page_size=500 分页抓取，减少请求次数
+    const params = { page_size: 500, keyword: wordKeyword.value, status: 'active', ...regionParams(wordFilterRegion.value) }
     const all = []
     let page = 1
     while (true) {
       const data = await request.get('/words', { params: { page, ...params } })
       all.push(...data.items)
-      if (page * 200 >= data.total) break
+      if (page * 500 >= data.total) break
       page++
     }
     if (!all.length) {
@@ -768,6 +809,19 @@ async function openWords(row) {
   }
 }
 
+/** 从当前任务把未占用的词条并入已选（跳过占用），便于快速创建同类任务 */
+function importFromTask() {
+  const ok = taskWords.value.filter((w) => !w.occupied)
+  const skipped = taskWords.value.length - ok.length
+  if (!ok.length) {
+    ElMessage.info('该任务词条均已被占用，无法带入')
+    return
+  }
+  ok.forEach((w) => selectedWords.value.set(w.id, w))
+  ElMessage.success(skipped ? `已加入 ${ok.length} 条（跳过 ${skipped} 条已占用）` : `已加入 ${ok.length} 条`)
+  wordsVisible.value = false
+}
+
 function statusLabel(s) {
   return { draft: '草稿', published: '已发布', closed: '已关闭' }[s] || s
 }
@@ -912,6 +966,31 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 10px;
+}
+.point-group {
+  margin-bottom: 14px;
+}
+.point-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-weight: 600;
+  border-bottom: 1px solid #ebeef5;
+  margin-bottom: 6px;
+}
+.selected-empty {
+  color: #909399;
+  font-size: 13px;
+  padding: 40px 0;
+  text-align: center;
+}
+.table-empty {
+  padding: 20px 0;
+  text-align: center;
+}
+.table-empty p {
+  margin: 4px 0;
 }
 .pager {
   margin-top: 10px;
