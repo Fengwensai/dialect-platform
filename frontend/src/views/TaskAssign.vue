@@ -3,63 +3,87 @@
     <!-- 创建任务 -->
     <el-card shadow="never" style="margin-bottom: 12px">
       <template #header><b>创建任务包</b></template>
-      <el-form :model="form" label-width="100px" inline>
-        <el-form-item label="任务名称" required>
-          <el-input v-model="form.name" placeholder="如：河北省核心词任务" style="width: 320px" />
-        </el-form-item>
-        <el-form-item label="关联团队">
-          <el-select
-            v-model="selectedTeamCode"
-            filterable
-            clearable
-            placeholder="选团队后地区自动带出"
-            style="width: 300px"
-            @change="onTeamChange"
-          >
-            <el-option v-for="t in teams" :key="t.code" :label="`${t.code} · ${t.name}`" :value="t.code">
-              <span>{{ t.code }} · {{ t.name }}</span>
-              <span class="opt-code">{{ regionName(t.province_code) }}-{{ regionName(t.city_code) }}</span>
-            </el-option>
-          </el-select>
-          <div v-if="selectedTeamInfo" class="tip">投放区划由团队码自动带出：{{ selectedTeamInfo }}</div>
-        </el-form-item>
-        <el-form-item label="投放区划" required>
-          <el-cascader
-            v-model="taskRegion"
-            :options="regionOptions"
-            :props="cascaderProps"
-            placeholder="省 / 市 / 区"
-            filterable
-            style="width: 300px"
-            :disabled="regionLocked"
-            @change="onTaskRegionChange"
-          />
-        </el-form-item>
-        <el-form-item label="必录音频数">
-          <el-input-number v-model="form.required_audio_count" :min="1" :max="5000" />
-        </el-form-item>
-        <el-form-item label="每人领取上限">
-          <el-input-number v-model="form.claim_limit" :min="1" :max="500" />
-          <div class="tip">每名发音人同时最多领取的词条数（领取制）</div>
-        </el-form-item>
-        <el-form-item label="截止时间">
-          <el-date-picker
-            v-model="form.deadline_at"
-            type="datetime"
-            placeholder="选填；到点任务标「已截止」"
-            value-format="YYYY-MM-DD HH:mm:ss"
-            style="width: 300px"
-          />
-          <div class="tip">发布后过截止时间 → 列表/看板标「已截止」，可一键清理到期任务关闭</div>
-        </el-form-item>
-        <el-form-item label="说明">
-          <el-input v-model="form.description" placeholder="任务说明（选填）" style="width: 320px" />
-        </el-form-item>
-        <el-form-item label="演示任务" v-if="auth.isSuper">
-          <el-checkbox v-model="form.is_demo">
-            演示任务（审核/体验用：未绑定团队的用户也能看、能录；请用「创建并发布」，审核后清理）
-          </el-checkbox>
-        </el-form-item>
+      <el-form :model="form" label-width="100px">
+        <el-row :gutter="20">
+          <el-col :xs="24" :span="12">
+            <el-form-item label="任务名称" required>
+              <el-input v-model="form.name" placeholder="如：河北省核心词任务" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :span="12">
+            <el-form-item label="关联团队">
+              <el-select
+                v-model="selectedTeamCode"
+                filterable
+                clearable
+                placeholder="选团队后地区自动带出"
+                style="width: 100%"
+                @change="onTeamChange"
+              >
+                <el-option v-for="t in teams" :key="t.code" :label="`${t.code} · ${t.name}`" :value="t.code">
+                  <span>{{ t.code }} · {{ t.name }}</span>
+                  <span class="opt-code">{{ regionName(t.province_code) }}-{{ regionName(t.city_code) }}</span>
+                </el-option>
+              </el-select>
+              <div v-if="selectedTeamInfo" class="tip">投放区划由团队码自动带出：{{ selectedTeamInfo }}</div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :xs="24" :span="12">
+            <el-form-item label="投放区划" required>
+              <el-cascader
+                v-model="taskRegion"
+                :options="regionOptions"
+                :props="cascaderProps"
+                placeholder="省 / 市 / 区"
+                filterable
+                style="width: 100%"
+                :disabled="regionLocked"
+                @change="onTaskRegionChange"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :span="6">
+            <el-form-item label="必录音频数">
+              <el-input-number v-model="form.required_audio_count" :min="1" :max="5000" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :span="6">
+            <el-form-item label="每人领取上限">
+              <el-input-number v-model="form.claim_limit" :min="1" :max="500" />
+              <div class="tip">领取制：每人同时最多领取的词条数</div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :xs="24" :span="12">
+            <el-form-item label="截止时间">
+              <el-date-picker
+                v-model="form.deadline_at"
+                type="datetime"
+                placeholder="选填；到点任务标「已截止」"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                style="width: 100%"
+              />
+              <div class="tip">发布后过截止时间 → 列表/看板标「已截止」，可一键清理到期任务关闭</div>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :span="12">
+            <el-form-item label="说明">
+              <el-input v-model="form.description" placeholder="任务说明（选填）" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row v-if="auth.isSuper">
+          <el-col :span="24">
+            <el-form-item label="演示任务">
+              <el-checkbox v-model="form.is_demo">
+                演示任务（审核/体验用：未绑定团队的用户也能看、能录；请用「创建并发布」，审核后清理）
+              </el-checkbox>
+            </el-form-item>
+          </el-col>
+        </el-row>
       </el-form>
     </el-card>
 
