@@ -5,12 +5,12 @@
       <template #header><b>创建任务包</b></template>
       <el-form :model="form" label-width="100px">
         <el-row :gutter="20">
-          <el-col :xs="24" :span="12">
+          <el-col :xs="24" :span="8">
             <el-form-item label="任务名称" required>
               <el-input v-model="form.name" placeholder="如：河北省核心词任务" />
             </el-form-item>
           </el-col>
-          <el-col :xs="24" :span="12">
+          <el-col :xs="24" :span="8">
             <el-form-item label="关联团队">
               <el-select
                 v-model="selectedTeamCode"
@@ -28,9 +28,7 @@
               <div v-if="selectedTeamInfo" class="tip">投放区划由团队码自动带出：{{ selectedTeamInfo }}</div>
             </el-form-item>
           </el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :xs="24" :span="12">
+          <el-col :xs="24" :span="8">
             <el-form-item label="投放区划" required>
               <el-cascader
                 v-model="taskRegion"
@@ -44,20 +42,20 @@
               />
             </el-form-item>
           </el-col>
-          <el-col :xs="24" :span="6">
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :xs="24" :span="8">
             <el-form-item label="必录音频数">
               <el-input-number v-model="form.required_audio_count" :min="1" :max="5000" />
             </el-form-item>
           </el-col>
-          <el-col :xs="24" :span="6">
+          <el-col :xs="24" :span="8">
             <el-form-item label="每人领取上限">
               <el-input-number v-model="form.claim_limit" :min="1" :max="500" />
               <div class="tip">领取制：每人同时最多领取的词条数</div>
             </el-form-item>
           </el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :xs="24" :span="12">
+          <el-col :xs="24" :span="8">
             <el-form-item label="截止时间">
               <el-date-picker
                 v-model="form.deadline_at"
@@ -69,7 +67,9 @@
               <div class="tip">发布后过截止时间 → 列表/看板标「已截止」，可一键清理到期任务关闭</div>
             </el-form-item>
           </el-col>
-          <el-col :xs="24" :span="12">
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :xs="24" :span="24">
             <el-form-item label="说明">
               <el-input v-model="form.description" placeholder="任务说明（选填）" />
             </el-form-item>
