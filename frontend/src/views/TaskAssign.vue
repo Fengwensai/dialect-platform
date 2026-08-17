@@ -115,14 +115,20 @@
           />
           <el-input v-model="wordKeyword" placeholder="搜索词条" clearable style="width: 200px" @keyup.enter="loadWords" />
           <el-button type="primary" :icon="Search" @click="loadWords">筛选</el-button>
+          <el-input-number v-model="selectN" :min="1" :max="5000" controls-position="right" style="width: 100px" />
+          <el-button :loading="pickingN" @click="pickN">一键选取 N 条</el-button>
         </div>
         <div class="filter-group filter-group--ops">
           <el-button :disabled="!words.length" @click="selectPage">全选当前页</el-button>
           <el-button :loading="selectingAll" @click="selectAllFiltered">跨页全选</el-button>
           <el-button @click="clearSelection">清空已选</el-button>
+          <el-checkbox v-model="showOccupied" style="margin-left: 4px">显示已占用</el-checkbox>
         </div>
       </div>
-      <div v-if="occupiedCount" class="occupied-hint">
+      <div v-if="!showOccupied && hiddenOccCount" class="occupied-hint">
+        已隐藏 <b>{{ hiddenOccCount }}</b> 条已占用词条，可勾选「显示已占用」查看
+      </div>
+      <div v-else-if="showOccupied && occupiedCount" class="occupied-hint">
         当前页有 <b>{{ occupiedCount }}</b> 条词条已占用，不可勾选
       </div>
 
@@ -132,7 +138,7 @@
             <el-table-v2
               v-loading="wordsLoading"
               :columns="wordColumns"
-              :data="words"
+              :data="visibleWords"
               :width="width"
               :height="height"
               row-key="id"
@@ -430,6 +436,9 @@ const wordPage = ref(1)
 const wordPageSize = ref(20)
 const selectedWords = ref(new Map()) // 已选词条：id -> 词条对象（清单展示/单个移除用）
 const selectedVisible = ref(false) // 已选词条清单抽屉
+const selectN = ref(null) // 一键选取条数
+const pickingN = ref(false)
+const showOccupied = ref(false) // 默认隐藏已占用词条
 const selectingAll = ref(false)
 
 const tasks = ref([])
@@ -554,7 +563,7 @@ function toggleRow(word, checked) {
   else selectedWords.value.delete(word.id)
 }
 
-const currentPageSelectable = computed(() => words.value.filter((w) => !w.occupied))
+const currentPageSelectable = computed(() => visibleWords.value.filter((w) => !w.occupied))
 const currentPageAllChecked = computed(
   () => currentPageSelectable.value.length > 0 && currentPageSelectable.value.every((w) => selectedWords.value.has(w.id))
 )
@@ -606,7 +615,10 @@ const wordColumns = computed(() => [
   },
   { key: 'example_sentence', dataKey: 'example_sentence', title: '例句', width: 220, showOverflowTooltip: true }
 ])
-const occupiedCount = computed(() => words.value.filter((w) => w.occupied).length)
+/** 默认隐藏已占用：表格数据 = 仅非占用（可开关显示全部）；占用提示按可见行算 */
+const visibleWords = computed(() => (showOccupied.value ? words.value : words.value.filter((w) => !w.occupied)))
+const hiddenOccCount = computed(() => words.value.filter((w) => w.occupied).length)
+const occupiedCount = computed(() => visibleWords.value.filter((w) => w.occupied).length)
 
 function clearSelection() {
   selectedWords.value = new Map()
@@ -627,26 +639,31 @@ function selectPage() {
   }
 }
 
+/** 拉取当前筛选下的全部词条（跨分页，page_size=500 减少请求数） */
+async function fetchAllFiltered() {
+  const params = { page_size: 500, keyword: wordKeyword.value, status: 'active', ...regionParams(wordFilterRegion.value) }
+  const all = []
+  let page = 1
+  while (true) {
+    const data = await request.get('/words', { params: { page, ...params } })
+    all.push(...data.items)
+    if (page * 500 >= data.total) break
+    page++
+  }
+  return all
+}
+
 /** 跨页全选：抓取当前筛选下的全部词条（跨全部分页）并全部选中 */
 async function selectAllFiltered() {
   selectingAll.value = true
   try {
-    // 词条上千时用 page_size=500 分页抓取，减少请求次数
-    const params = { page_size: 500, keyword: wordKeyword.value, status: 'active', ...regionParams(wordFilterRegion.value) }
-    const all = []
-    let page = 1
-    while (true) {
-      const data = await request.get('/words', { params: { page, ...params } })
-      all.push(...data.items)
-      if (page * 500 >= data.total) break
-      page++
-    }
+    const all = await fetchAllFiltered()
     if (!all.length) {
       ElMessage.info('当前筛选下没有可选的词条')
       return
     }
     const selectable = all.filter((w) => !w.occupied)
-    const occupiedCount = all.length - selectable.length
+    const occCnt = all.length - selectable.length
     if (!selectable.length) {
       ElMessage.info('当前筛选下词条均已被其它任务占用')
       return
@@ -654,7 +671,7 @@ async function selectAllFiltered() {
     try {
       await ElMessageBox.confirm(
         `将选中全部 ${selectable.length} 条匹配词条（跨全部分页），已选的保留。` +
-        (occupiedCount ? `另有 ${occupiedCount} 条已占用将跳过。` : '') +
+        (occCnt ? `另有 ${occCnt} 条已占用将跳过。` : '') +
         '确定？',
         '跨页全选',
         { type: 'warning' }
@@ -663,9 +680,37 @@ async function selectAllFiltered() {
     selectable.forEach((w) => {
       selectedWords.value.set(w.id, w)
     })
-    ElMessage.success(`已全选 ${selectable.length} 条${occupiedCount ? `（跳过 ${occupiedCount} 条已占用）` : ''}`)
+    ElMessage.success(`已全选 ${selectable.length} 条${occCnt ? `（跳过 ${occCnt} 条已占用）` : ''}`)
   } finally {
     selectingAll.value = false
+  }
+}
+
+/** 一键选取：从当前筛选的非占用词条里取前 N 条加入已选（不足则全部） */
+async function pickN() {
+  const n = selectN.value
+  if (!n || n < 1) {
+    ElMessage.warning('请先输入要选取的词条数')
+    return
+  }
+  pickingN.value = true
+  try {
+    const all = await fetchAllFiltered()
+    const selectable = all.filter((w) => !w.occupied)
+    if (!selectable.length) {
+      ElMessage.info('当前筛选下没有可选的词条')
+      return
+    }
+    const before = selectedWords.value.size
+    selectable.slice(0, n).forEach((w) => selectedWords.value.set(w.id, w))
+    const added = selectedWords.value.size - before
+    if (selectable.length < n) {
+      ElMessage.success(`当前筛选可选词条不足，已加入 ${added} 条（共 ${selectable.length} 条可选）`)
+    } else {
+      ElMessage.success(`已加入 ${added} 条，当前共选 ${selectedWords.value.size} 条`)
+    }
+  } finally {
+    pickingN.value = false
   }
 }
 
