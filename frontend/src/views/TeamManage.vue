@@ -215,13 +215,13 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 .hint {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
   flex: 1;
   min-width: 240px;
 }
 .total {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 </style>

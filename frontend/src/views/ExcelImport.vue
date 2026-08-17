@@ -167,7 +167,7 @@ async function onImport() {
 <style scoped>
 .upload-icon {
   font-size: 60px;
-  color: #c0c4cc;
+  color: var(--el-text-color-placeholder);
 }
 .card-header {
   display: flex;
@@ -183,7 +183,7 @@ async function onImport() {
 }
 .map-title {
   font-weight: 600;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .map-item {
   display: inline-flex;
@@ -192,7 +192,7 @@ async function onImport() {
 }
 .map-col {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   max-width: 110px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -202,6 +202,6 @@ async function onImport() {
 
 <style>
 .excel-import .el-table .row-warn td {
-  background-color: #fdf6ec;
+  background-color: rgba(230, 162, 60, 0.12);
 }
 </style>

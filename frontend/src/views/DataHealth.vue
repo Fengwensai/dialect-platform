@@ -186,11 +186,11 @@ onMounted(load)
   margin-right: 2px;
 }
 .total {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .ref-code {
   font-family: monospace;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 </style>

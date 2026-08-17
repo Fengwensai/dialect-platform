@@ -684,7 +684,7 @@ onMounted(async () => {
 <!-- 质量预警标黄：给 el-table 内部 td 上色必须非 scoped（照 ExcelImport.vue 先例） -->
 <style>
 .dashboard-page .el-table .row-warn td {
-  background-color: #fdf6ec;
+  background-color: rgba(230, 162, 60, 0.12);
 }
 </style>
 
@@ -698,7 +698,7 @@ onMounted(async () => {
 .rr-total {
   margin-top: 10px;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 .stats-row {
   display: flex;
@@ -707,14 +707,14 @@ onMounted(async () => {
 .stat-box {
   flex: 1;
   padding: 10px 0;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 6px;
   text-align: center;
 }
 .stat-num {
   font-size: 20px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .stat-box.warn .stat-num { color: #e6a23c; }
 .stat-box.ok .stat-num { color: #67c23a; }
@@ -722,28 +722,28 @@ onMounted(async () => {
 .stat-unit {
   font-size: 12px;
   font-weight: 400;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-left: 2px;
 }
 .stat-label {
   margin-top: 2px;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 .sub-line {
   display: flex;
   gap: 22px;
   margin-top: 10px;
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .sub-line b {
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin-left: 2px;
 }
 .trend-block {
   margin-top: 14px;
-  border-top: 1px dashed #ebeef5;
+  border-top: 1px dashed var(--el-border-color-lighter);
   padding-top: 12px;
 }
 .trend-head {
@@ -754,16 +754,16 @@ onMounted(async () => {
 }
 .trend-title {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .region-block {
   margin-top: 14px;
-  border-top: 1px dashed #ebeef5;
+  border-top: 1px dashed var(--el-border-color-lighter);
   padding-top: 12px;
 }
 .region-title {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   display: inline-block;
   margin-bottom: 8px;
 }
@@ -778,11 +778,11 @@ onMounted(async () => {
   margin-bottom: 12px;
 }
 .total {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .muted {
-  color: #c0c4cc;
+  color: var(--el-text-color-placeholder);
 }
 .pager {
   margin-top: 14px;
@@ -791,7 +791,7 @@ onMounted(async () => {
 .num-warn { color: #e6a23c; font-weight: 600; }
 .num-ok { color: #67c23a; font-weight: 600; }
 .num-bad { color: #f56c6c; font-weight: 600; }
-.sep { color: #c0c4cc; margin: 0 3px; }
+.sep { color: var(--el-text-color-placeholder); margin: 0 3px; }
 .detail-head {
   display: flex;
   align-items: baseline;
@@ -802,11 +802,11 @@ onMounted(async () => {
 .detail-name {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .detail-sub {
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 .task-row {
   display: flex;
@@ -817,15 +817,15 @@ onMounted(async () => {
 }
 .task-label {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .word {
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .code {
   margin-left: 6px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .player-sm {

@@ -197,7 +197,7 @@ onMounted(load)
   flex-wrap: wrap;
 }
 .hint {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
   flex: 1;
   min-width: 240px;
@@ -207,7 +207,7 @@ onMounted(load)
   word-break: break-all;
   font-size: 13px;
   line-height: 1.8;
-  color: #303133;
+  color: var(--el-text-color-primary);
   max-height: 60vh;
   overflow: auto;
   margin: 0;

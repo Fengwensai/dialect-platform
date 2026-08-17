@@ -808,11 +808,11 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 .total {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .pending-badge {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
   margin-left: 2px;
 }
@@ -829,13 +829,13 @@ onUnmounted(() => {
   gap: 10px;
   margin-bottom: 12px;
   padding: 8px 12px;
-  background: #fdf6ec;
-  border: 1px solid #faecd8;
+  background: rgba(230, 162, 60, 0.12);
+  border: 1px solid rgba(230, 162, 60, 0.35);
   border-radius: 6px;
 }
 .batch-tip {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .sel-count {
   color: #e6a23c;
@@ -847,11 +847,11 @@ onUnmounted(() => {
 }
 .word {
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .code {
   margin-left: 6px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 /* 当前单播放器栏 */
@@ -862,8 +862,8 @@ onUnmounted(() => {
   gap: 12px;
   margin-top: 14px;
   padding: 10px 14px;
-  background: #f0f9ff;
-  border: 1px solid #c6e2ff;
+  background: rgba(64, 158, 255, 0.10);
+  border: 1px solid rgba(64, 158, 255, 0.35);
   border-radius: 8px;
 }
 .pb-info {
@@ -874,11 +874,11 @@ onUnmounted(() => {
 }
 .pb-word {
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .pb-sub {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 .pb-audio {
   width: 300px;
@@ -901,12 +901,12 @@ onUnmounted(() => {
 }
 .rr-note {
   margin-left: 4px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   font-size: 13px;
 }
 .bb-tip {
   margin-bottom: 12px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .bb-field {
   margin-bottom: 12px;
@@ -914,7 +914,7 @@ onUnmounted(() => {
 .bb-label {
   margin-bottom: 6px;
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .tr-box {
   display: flex;
@@ -923,7 +923,7 @@ onUnmounted(() => {
 }
 .tr-item {
   font-size: 13px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .tr-label {
   display: inline-block;
@@ -931,13 +931,13 @@ onUnmounted(() => {
   margin-right: 6px;
   padding: 0 2px;
   border-radius: 3px;
-  background: #ecf5ff;
+  background: rgba(64, 158, 255, 0.10);
   color: #409eff;
   font-size: 12px;
   text-align: center;
 }
 .tr-empty {
-  color: #c0c4cc;
+  color: var(--el-text-color-placeholder);
 }
 </style>
 
@@ -945,7 +945,7 @@ onUnmounted(() => {
 /* 帮助 popover（非 scoped：popover 挂载到 body） */
 .keys-help .kh-title {
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin-bottom: 8px;
 }
 .keys-help .kh-row {
@@ -954,27 +954,27 @@ onUnmounted(() => {
   gap: 6px;
   margin-bottom: 6px;
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .keys-help .kbd {
   display: inline-block;
   min-width: 20px;
   padding: 1px 6px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--el-border-color);
   border-bottom-width: 2px;
   border-radius: 4px;
-  background: #fff;
+  background: var(--el-fill-color);
   font-family: inherit;
   font-size: 12px;
   text-align: center;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .keys-help .kh-tip {
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid var(--el-border-color-lighter);
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   line-height: 1.6;
 }
 </style>

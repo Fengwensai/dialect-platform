@@ -694,11 +694,11 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 .total {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .muted {
-  color: #c0c4cc;
+  color: var(--el-text-color-placeholder);
 }
 .region-row {
   display: flex;
@@ -707,7 +707,7 @@ onMounted(async () => {
 }
 .region-hint {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   line-height: 1.6;
 }
 .pager {
@@ -729,11 +729,11 @@ onMounted(async () => {
 .detail-name {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .detail-sub {
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 .stats-row {
   display: flex;
@@ -743,14 +743,14 @@ onMounted(async () => {
 .stat-box {
   flex: 1;
   padding: 10px 0;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 6px;
   text-align: center;
 }
 .stat-num {
   font-size: 20px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .stat-box.warn .stat-num { color: #e6a23c; }
 .stat-box.ok .stat-num { color: #67c23a; }
@@ -758,7 +758,7 @@ onMounted(async () => {
 .stat-label {
   margin-top: 2px;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 .task-row {
   display: flex;
@@ -769,15 +769,15 @@ onMounted(async () => {
 }
 .task-label {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .word {
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .code {
   margin-left: 6px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .player-sm {
@@ -787,7 +787,7 @@ onMounted(async () => {
 }
 .merge-tip {
   margin: 0 0 14px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   font-size: 13px;
   line-height: 1.6;
 }

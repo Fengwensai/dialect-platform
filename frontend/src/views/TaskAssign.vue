@@ -1025,7 +1025,7 @@ onMounted(async () => {
   align-items: center;
 }
 .selected-info {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .filter-bar {
@@ -1045,7 +1045,7 @@ onMounted(async () => {
 }
 .occupied-hint {
   margin-bottom: 10px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .drawer-bar {
@@ -1063,11 +1063,11 @@ onMounted(async () => {
   align-items: center;
   padding: 6px 0;
   font-weight: 600;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--el-border-color-lighter);
   margin-bottom: 6px;
 }
 .selected-empty {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
   padding: 40px 0;
   text-align: center;
@@ -1098,7 +1098,7 @@ onMounted(async () => {
 }
 .tip {
   margin-top: 4px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 .task-progress-meta {
@@ -1108,7 +1108,7 @@ onMounted(async () => {
   margin-top: 4px;
 }
 .muted {
-  color: #c0c4cc;
+  color: var(--el-text-color-placeholder);
 }
 .deadline-expired {
   color: #f56c6c;
@@ -1116,7 +1116,7 @@ onMounted(async () => {
 }
 .opt-code {
   margin-left: 8px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 </style>

@@ -1,0 +1,102 @@
+/* =========================================================
+   方言采集平台 · 管理后台 深色主题
+   与登录页一致的极光蓝青调（深海军蓝底 + #409eff / #00c9b0 点缀）
+   ========================================================= */
+
+html.dark {
+  /* 主色（沿用登录页） */
+  --el-color-primary: #409eff;
+  --el-color-primary-dark-2: #337ecc;
+  --el-color-primary-light-3: #66b1ff;
+  --el-color-primary-light-5: #8cc5ff;
+  --el-color-primary-light-7: #b3d9ff;
+  --el-color-primary-light-8: #c6e3ff;
+  --el-color-primary-light-9: #e8f4ff;
+
+  /* 背景 */
+  --el-bg-color-page: #0a1220;         /* 页面底色（同登录页最深色） */
+  --el-bg-color: #141f30;              /* 卡片/面板 */
+  --el-bg-color-overlay: #1a2a3c;      /* 弹窗/下拉 */
+  --el-fill-color-blank: #141f30;
+  --el-fill-color: #1b2b3e;
+  --el-fill-color-light: #22344a;
+  --el-fill-color-lighter: #1e3044;
+  --el-fill-color-extra-light: #182a3e;
+  --el-fill-color-dark: #2b4058;
+  --el-fill-color-darker: #334b66;
+
+  /* 边框（带蓝调） */
+  --el-border-color: #2c4058;
+  --el-border-color-light: #263a52;
+  --el-border-color-lighter: #21344a;
+  --el-border-color-extra-light: #1c2c40;
+  --el-border-color-dark: #354c68;
+  --el-border-color-darker: #3e5878;
+
+  /* 文字（偏冷白） */
+  --el-text-color-primary: #e9f0f9;
+  --el-text-color-regular: #bdc9da;
+  --el-text-color-secondary: #8ba0b8;
+  --el-text-color-placeholder: #617693;
+  --el-text-color-disabled: #4c5f78;
+
+  /* 遮罩 */
+  --el-mask-color: rgba(10, 18, 32, 0.72);
+
+  /* 表格（深底 + 蓝色悬停） */
+  --el-table-bg-color: var(--el-bg-color);
+  --el-table-tr-bg-color: var(--el-bg-color);
+  --el-table-header-bg-color: #16233a;
+  --el-table-header-text-color: var(--el-text-color-regular);
+  --el-table-row-hover-bg-color: rgba(64, 158, 255, 0.08);
+  --el-table-border-color: var(--el-border-color-lighter);
+}
+
+html, body {
+  height: 100%;
+}
+body {
+  background: var(--el-bg-color-page);
+  color: var(--el-text-color-primary);
+  -webkit-font-smoothing: antialiased;
+}
+#app {
+  min-height: 100vh;
+}
+
+/* —— 滚动条 —— */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #2c4058;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a5578;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* —— 文本选中 —— */
+::selection {
+  background: rgba(64, 158, 255, 0.35);
+  color: #fff;
+}
+
+/* —— 卡片统一点缀 —— */
+html.dark .el-card {
+  --el-card-bg-color: var(--el-bg-color);
+  border-color: var(--el-border-color-lighter);
+}
+html.dark .el-dialog {
+  --el-dialog-bg-color: #16233a;
+}
+html.dark .el-message-box {
+  --el-messagebox-bg-color: #16233a;
+}

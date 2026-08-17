@@ -55,7 +55,7 @@ onMounted(() => regionStore.ensureLoaded())
 }
 .tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 .tree-wrap {
   max-height: 70vh;
@@ -68,7 +68,7 @@ onMounted(() => regionStore.ensureLoaded())
 }
 .node-code {
   font-size: 12px;
-  color: #b0b4bb;
+  color: var(--el-text-color-secondary);
   font-family: monospace;
 }
 </style>

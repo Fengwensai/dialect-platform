@@ -252,7 +252,7 @@ onMounted(load)
   gap: 10px;
 }
 .total {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .pager {
@@ -266,13 +266,13 @@ onMounted(load)
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: #303133;
-  background: #f5f6f8;
+  color: var(--el-text-color-primary);
+  background: var(--el-bg-color);
   border-radius: 4px;
   padding: 8px 10px;
 }
 .detail-empty {
-  color: #c0c4cc;
+  color: var(--el-text-color-placeholder);
   font-size: 13px;
   padding: 10px 14px;
 }
@@ -282,15 +282,15 @@ onMounted(load)
   gap: 18px;
   margin-top: 10px;
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .workload-summary b {
   font-size: 15px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .workload-summary .muted {
   margin-left: auto;
-  color: #c0c4cc;
+  color: var(--el-text-color-placeholder);
   font-size: 12px;
 }
 .num-ok {

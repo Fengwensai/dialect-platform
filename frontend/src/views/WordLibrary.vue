@@ -487,7 +487,7 @@ onMounted(async () => {
   gap: 10px;
 }
 .total {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .pager {
@@ -500,13 +500,13 @@ onMounted(async () => {
   gap: 10px;
   margin-bottom: 12px;
   padding: 8px 12px;
-  background: #fdf6ec;
-  border: 1px solid #faecd8;
+  background: rgba(230, 162, 60, 0.12);
+  border: 1px solid rgba(230, 162, 60, 0.35);
   border-radius: 6px;
 }
 .batch-tip {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .sel-count {
   color: #e6a23c;
@@ -514,7 +514,7 @@ onMounted(async () => {
 }
 .merge-tip {
   margin: 0 0 14px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   font-size: 13px;
   line-height: 1.6;
 }
