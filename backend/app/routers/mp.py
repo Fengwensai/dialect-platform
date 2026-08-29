@@ -69,8 +69,7 @@ from ..services.wechat import code_to_openid
 router = APIRouter(prefix="/api/mp", tags=["mp"])
 
 ALLOWED_EXT = {".wav", ".mp3", ".m4a", ".aac"}
-ALLOWED_AVATAR_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2MB
+# 合规整改：头像不再上传服务器（隐私指引声明仅本地缓存），移除头像上传相关常量
 
 GENDERS = {"male", "female", "other"}
 AGE_BRACKETS = {"under18", "age18_30", "age31_45", "age46_60", "over60"}
@@ -413,12 +412,12 @@ def _find_or_create_speaker(
     openid: str,
     device_id: str | None,
     nickname: str | None,
-    avatar_url: str | None,
     gender: str | None = None,
     age_bracket: str | None = None,
 ) -> Speaker:
     """登录身份解析：优先 openid，其次 device_id（与既有录音统一），否则新建。
 
+    合规整改：头像不再上传服务器，登录不接收 avatar_url。
     属地（省+市）不再从登录/上传回填，唯一来源是团队码绑定（POST /api/mp/team/join）。
     """
     speaker = db.query(Speaker).filter(Speaker.openid == openid).first()
@@ -429,7 +428,6 @@ def _find_or_create_speaker(
             openid=openid,
             device_id=device_id or None,
             nickname=nickname or ("发音人" + (device_id or openid)[-4:]),
-            avatar_url=avatar_url or None,
             gender=gender or None,
             age_bracket=age_bracket or None,
         )
@@ -447,8 +445,6 @@ def _find_or_create_speaker(
     # 回填画像（空则不覆盖已有值）
     if nickname and not speaker.nickname:
         speaker.nickname = nickname
-    if avatar_url and not speaker.avatar_url:
-        speaker.avatar_url = avatar_url
     _fill_profile_if_empty(speaker, gender, age_bracket)
     return speaker
 
@@ -467,7 +463,6 @@ def mp_login(body: LoginRequest, db: Session = Depends(get_db)):
         openid,
         body.device_id,
         body.nickname,
-        body.avatar_url,
         body.gender,
         body.age_bracket,
     )
@@ -569,8 +564,7 @@ def update_my_profile(
         if check_text(body.nickname.strip()).blocked:
             raise HTTPException(status_code=400, detail="昵称包含违规内容")
         speaker.nickname = body.nickname.strip()
-    if body.avatar_url is not None:
-        speaker.avatar_url = body.avatar_url or None
+    # 头像不再存储于服务器（合规整改：隐私指引声明仅本地缓存），不在此更新
     # 属地（省/市）锁定：由团队码绑定决定，此处不改
     db.commit()
     db.refresh(speaker)
@@ -602,63 +596,6 @@ def team_join(
     speaker.province_code = tc.province_code
     speaker.city_code = tc.city_code
     speaker.team_code = tc.code
-    db.commit()
-    db.refresh(speaker)
-    return SpeakerOut.model_validate(speaker)
-
-
-def _is_image(ext: str, content: bytes) -> bool:
-    """按扩展名做魔数轻校验，防非图片文件伪装上传（Python 3.13 无 imghdr，手写判断）。"""
-    if ext == ".png":
-        return content.startswith(b"\x89PNG\r\n\x1a\n")
-    if ext in (".jpg", ".jpeg"):
-        return content.startswith(b"\xff\xd8\xff")
-    if ext == ".webp":
-        return content[:4] == b"RIFF" and content[8:12] == b"WEBP"
-    if ext == ".gif":
-        return content.startswith(b"GIF87a") or content.startswith(b"GIF89a")
-    return False
-
-
-@router.post("/avatar", response_model=SpeakerOut)
-async def upload_avatar(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    speaker: Speaker = Depends(require_agreements_accepted),
-):
-    """上传头像：落盘 MEDIA_ROOT/avatars/ 并更新发音人头像 URL（跨设备持久）。
-
-    chooseAvatar 得到的本地临时路径对其它设备无效，小程序端先把图片传到这里，
-    换回 /media/avatars/... 服务器路径再存 speaker.avatar_url。
-    """
-    filename = file.filename or ""
-    ext = Path(filename).suffix.lower()
-    if ext not in ALLOWED_AVATAR_EXT:
-        raise HTTPException(status_code=400, detail="头像仅支持 .jpg/.jpeg/.png/.webp/.gif")
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="头像文件为空")
-    if len(content) > MAX_AVATAR_SIZE:
-        raise HTTPException(status_code=400, detail="头像文件过大（限 2MB）")
-    if not _is_image(ext, content):
-        raise HTTPException(status_code=400, detail="文件不是有效图片")
-
-    # 旧头像为服务器文件时清理，避免孤儿文件
-    if speaker.avatar_url and speaker.avatar_url.startswith("/media/avatars/"):
-        old = Path(settings.MEDIA_ROOT) / speaker.avatar_url.removeprefix("/media/")
-        try:
-            if old.is_file():
-                old.unlink()
-        except OSError:
-            pass
-
-    avatars_dir = Path(settings.MEDIA_ROOT) / "avatars"
-    avatars_dir.mkdir(parents=True, exist_ok=True)
-    save_name = f"{speaker.id}_{uuid4().hex[:8]}{ext}"
-    save_path = avatars_dir / save_name
-    save_path.write_bytes(content)
-
-    speaker.avatar_url = f"/media/avatars/{save_name}"
     db.commit()
     db.refresh(speaker)
     return SpeakerOut.model_validate(speaker)

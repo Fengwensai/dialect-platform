@@ -115,28 +115,15 @@ Content-Type: application/json
 }
 ```
 
-- `gender` / `age_bracket` / `avatar_url` 均可省略（`null`/缺省 = **不改**）；空串 `""` = **清空**该字段（性别/年龄段/头像）；非法值 422。
+- `gender` / `age_bracket` 均可省略（`null`/缺省 = **不改**）；空串 `""` = **清空**该字段；非法值 422。
 - `nickname` 仅**非空**才更新（昵称列不可为空，空串/缺省 = 不改）。
+- **合规整改（2026-08-29）**：头像不再上传服务器（隐私指引声明仅本地缓存），`avatar_url` 已移出登录/资料更新范围，仅保留在 `speaker` 响应中恒为 `null`。
 - **响应 200**：更新后的 `speaker` 对象（同登录响应结构）。
 - 未登录访问 → 401。
 
-### ✅ 上传头像 `POST /api/mp/avatar`（已实现，需 Bearer，multipart）
+### ~~上传头像 `POST /api/mp/avatar`~~（已移除，2026-08-29）
 
-`open-type="chooseAvatar"` 得到的本地临时头像路径对其它设备无效，小程序先把图片上传到服务器，换回 `/media/avatars/...` 持久路径，再随资料更新存储 `speaker.avatar_url`。
-
-```
-POST /api/mp/avatar
-Authorization: Bearer <access_token>
-Content-Type: multipart/form-data
-
-file: <图片文件>
-```
-
-- 支持 `.jpg/.jpeg/.png/.webp/.gif`，限 2MB；按魔数校验真实图片（伪装扩展名 → 400「文件不是有效图片」）。
-- 落盘 `backend/media/avatars/{speaker_id}_{随机}.{ext}`，`speaker.avatar_url` 更新为 `/media/avatars/...`；替换旧头像时自动删除原服务器文件。
-- **响应 200**：更新后的 `speaker` 对象（`avatar_url` 为服务器路径）。
-- 未登录 → 401；扩展名不支持 / 空文件 / 超 2MB / 非图片 → 400。
-- 小程序端 `utils/speaker.js`：`ensureAvatarUrl(本地路径)` 封装「本地临时 → 上传 → 服务器 URL」转换；头像展示用 `getAvatarDisplayUrl()`（`/media` 开头自动拼 `API_BASE`）。登录页 / 「我的」页保存头像时均走此链路。
+合规整改：头像改为**仅本地缓存展示**，不再上传服务器。小程序端 `chooseAvatar` 得到临时路径后经 `utils/speaker.js` 的 `saveLocalAvatar()`（`wx.saveFile`）持久化到本地，`getAvatarDisplayUrl()` 返回本地路径；登录/资料页不再调用服务器头像接口。存量服务器头像已由 `backend/scripts/cleanup_avatars.py` 清理。
 
 ### ✅ 协议确认（阶段九）
 

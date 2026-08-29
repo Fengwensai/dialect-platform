@@ -13,6 +13,7 @@ const TOKEN_KEY = 'MP_TOKEN'
 const SPEAKER_KEY = 'MP_SPEAKER'
 const GENDER_KEY = 'MP_GENDER'
 const AGE_BRACKET_KEY = 'MP_AGE_BRACKET'
+const AVATAR_KEY = 'MP_AVATAR' // 头像仅本地缓存（隐私指引声明：不存储于服务器）
 
 function _genId() {
   const t = Date.now().toString(36)
@@ -48,10 +49,56 @@ function getNickname() {
   }
 }
 
-/** 发音人头像 URL（无则返回空串） */
+/** 发音人头像（仅本地缓存，不上传服务器）：返回本地保存路径，无则空串 */
 function getAvatarUrl() {
-  const sp = getSpeaker()
-  return (sp && sp.avatar_url) || ''
+  return getLocalAvatar()
+}
+
+/** 保存头像到本地：wx.saveFile 持久化（跨会话），失败退回临时路径；仅本地，不发送服务器 */
+function saveLocalAvatar(tempPath) {
+  return new Promise((resolve) => {
+    if (!tempPath) {
+      resolve('')
+      return
+    }
+    if (typeof wx.saveFile === 'function') {
+      wx.saveFile({
+        tempFilePath: tempPath,
+        success: (res) => {
+          try {
+            wx.setStorageSync(AVATAR_KEY, res.savedFilePath || tempPath)
+          } catch (e) {
+            // 忽略存储异常
+          }
+          resolve(res.savedFilePath || tempPath)
+        },
+        fail: () => {
+          try {
+            wx.setStorageSync(AVATAR_KEY, tempPath)
+          } catch (e) {
+            // 忽略存储异常
+          }
+          resolve(tempPath)
+        }
+      })
+    } else {
+      try {
+        wx.setStorageSync(AVATAR_KEY, tempPath)
+      } catch (e) {
+        // 忽略存储异常
+      }
+      resolve(tempPath)
+    }
+  })
+}
+
+/** 取本地头像路径（无则空串） */
+function getLocalAvatar() {
+  try {
+    return wx.getStorageSync(AVATAR_KEY) || ''
+  } catch (e) {
+    return ''
+  }
 }
 
 /** 省份代码（属地，团队码绑定后由服务端返回） */
@@ -162,11 +209,11 @@ function isLoggedIn() {
 
 /**
  * 微信一键登录：wx.login 拿 code → 后端换 token + 建档。
+ * 头像不上传服务器（隐私指引：仅本地缓存），故不随登录提交。
  * @param {string} [nickname]   授权取到的昵称（无则用本地缓存/微信用户）
- * @param {string} [avatarUrl]  授权取到的头像 URL（无则不传）
  * @returns {Promise<object>} 完整登录载荷 { access_token, speaker, pending_agreements }
  */
-function login(nickname, avatarUrl) {
+function login(nickname) {
   return new Promise((resolve, reject) => {
     wx.login({
       success: (r) => {
@@ -182,7 +229,6 @@ function login(nickname, avatarUrl) {
             code: r.code,
             device_id: getDeviceId(),
             nickname: nickname || getNickname() || undefined,
-            avatar_url: avatarUrl || undefined,
             gender: getGender() || undefined,
             age_bracket: getAgeBracket() || undefined
           },
@@ -371,8 +417,8 @@ function setProfile(gender, age_bracket) {
 }
 
 /**
- * 更新头像昵称：先落本地，再同步服务端。
- * @param {object} patch { nickname?, avatar_url? }（非空才提交）
+ * 更新昵称：先落本地，再同步服务端（头像仅本地缓存，不在此处理）。
+ * @param {object} patch { nickname? }（非空才提交）
  * @returns {Promise<object>} 更新后的 speaker
  * 属地（省/市）由团队码绑定决定，此处不允许自改。
  */
@@ -380,12 +426,10 @@ function updateProfile(patch) {
   patch = patch || {}
   const sp = getSpeaker() || {}
   if (patch.nickname) sp.nickname = patch.nickname
-  if (patch.avatar_url !== undefined) sp.avatar_url = patch.avatar_url || null
   setSpeaker(sp)
   if (!getToken()) return Promise.resolve(sp)
   const data = {}
   if (patch.nickname) data.nickname = patch.nickname
-  if (patch.avatar_url) data.avatar_url = patch.avatar_url
   return new Promise((resolve, reject) => {
     wx.request({
       url: config.API_BASE + '/api/mp/profile',
@@ -413,61 +457,9 @@ function updateProfile(patch) {
   })
 }
 
-/** 头像展示地址：/media 开头拼 API_BASE，本地临时/完整 URL 原样返回 */
+/** 头像展示地址：本地缓存路径原样返回（不上传服务器，无则空串） */
 function getAvatarDisplayUrl() {
-  const u = getAvatarUrl()
-  if (!u) return ''
-  if (u.indexOf('/media/') === 0) return config.API_BASE + u
-  return u
-}
-
-/** 是否为服务器头像 URL（/media/ 相对路径，或 https:// 完整地址）；本地临时路径需先上传 */
-function isServerAvatar(u) {
-  return u.indexOf('/media/') === 0 || u.indexOf('https://') === 0
-}
-
-/**
- * 上传头像到服务器：chooseAvatar 的本地临时路径对其它设备无效，上传后
- * 服务器返回 /media/avatars/... 路径并更新发音人。
- * @param {string} localPath 本地临时头像路径
- * @returns {Promise<object>} 更新后的 speaker
- */
-function uploadAvatar(localPath) {
-  return new Promise((resolve, reject) => {
-    wx.uploadFile({
-      url: config.API_BASE + '/api/mp/avatar',
-      filePath: localPath,
-      name: 'file',
-      header: { Authorization: 'Bearer ' + getToken() },
-      success: (res) => {
-        let data
-        try {
-          data = JSON.parse(res.data)
-        } catch (e) {
-          reject(new Error('头像上传响应解析失败'))
-          return
-        }
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          setSpeaker(data) // 端点直接返回 SpeakerOut
-          resolve(data)
-        } else {
-          reject(new Error((data && data.detail) || ('头像上传失败 HTTP ' + res.statusCode)))
-        }
-      },
-      fail: reject
-    })
-  })
-}
-
-/**
- * 把头像转成服务器 URL：已是服务器 URL 原样返回；本地临时路径先上传再返回服务器路径。
- * @param {string} path
- * @returns {Promise<string|null>}
- */
-function ensureAvatarUrl(path) {
-  if (!path) return Promise.resolve(null)
-  if (isServerAvatar(path)) return Promise.resolve(path)
-  return uploadAvatar(path).then((sp) => (sp && sp.avatar_url) || null)
+  return getLocalAvatar()
 }
 
 module.exports = {
@@ -476,6 +468,8 @@ module.exports = {
   getNickname,
   getAvatarUrl,
   getAvatarDisplayUrl,
+  saveLocalAvatar,
+  getLocalAvatar,
   getProvinceCode,
   getCityCode,
   getTeamCode,
@@ -485,8 +479,6 @@ module.exports = {
   setProfile,
   updateProfile,
   joinTeam,
-  uploadAvatar,
-  ensureAvatarUrl,
   getToken,
   setToken,
   clearToken,
@@ -502,5 +494,6 @@ module.exports = {
   TOKEN_KEY,
   SPEAKER_KEY,
   GENDER_KEY,
-  AGE_BRACKET_KEY
+  AGE_BRACKET_KEY,
+  AVATAR_KEY
 }

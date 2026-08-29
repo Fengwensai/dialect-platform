@@ -26,7 +26,7 @@ Page({
     const sp = speaker.getSpeaker() || {}
     this.setData({
       nickname: sp.nickname || '微信用户',
-      avatarUrl: sp.avatar_url || '',
+      avatarUrl: speaker.getAvatarUrl(), // 本地缓存头像（不上传服务器）
       displayAvatarUrl: speaker.getAvatarDisplayUrl(),
       genderIndex: GENDER_CODES.indexOf(sp.gender || ''),
       ageIndex: AGE_CODES.indexOf(sp.age_bracket || '')
@@ -68,14 +68,13 @@ Page({
     wx.showLoading({ title: '保存中…', mask: true })
     const g = this.data.genderIndex >= 0 ? GENDER_CODES[this.data.genderIndex] : null
     const a = this.data.ageIndex >= 0 ? AGE_CODES[this.data.ageIndex] : null
-    // 头像本地临时路径先上传成服务器 URL（跨设备持久），再随资料更新落库
+    // 头像仅本地缓存展示（隐私指引声明：不存储于服务器）；昵称提交服务器供后台识别发音人
     speaker
-      .ensureAvatarUrl(this.data.avatarUrl)
-      .then((serverAvatar) => {
+      .saveLocalAvatar(this.data.avatarUrl)
+      .then(() => {
         const patch = {}
-        if (serverAvatar) patch.avatar_url = serverAvatar
         if (this.data.nickname && this.data.nickname !== '微信用户') patch.nickname = this.data.nickname
-        // setProfile 处理画像（性别/年龄段），updateProfile 处理头像/昵称
+        // setProfile 处理画像（性别/年龄段），updateProfile 处理昵称
         return speaker
           .setProfile(g, a)
           .then(() => (Object.keys(patch).length ? speaker.updateProfile(patch) : Promise.resolve()))

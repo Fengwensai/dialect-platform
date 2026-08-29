@@ -64,6 +64,7 @@
         bindinput="onNicknameInput"
         bindfocus="onNicknameFocus"
       />
+      <view class="avatar-note">头像仅在本机显示、不上传服务器；昵称用于研究人员识别您的录音（均可跳过）</view>
 
       <view class="profile-block">
         <view class="profile-title">团队（必填）</view>

@@ -143,6 +143,16 @@
   color: #909399;
 }
 
+/* 头像仅本地缓存提示（隐私合规：不存储于服务器） */
+.avatar-note {
+  width: 100%;
+  margin-top: 20rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #909399;
+  text-align: center;
+}
+
 /* —— 登录后：完善头像昵称 —— */
 .setup-card {
   margin-top: 96rpx;

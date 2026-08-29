@@ -1,6 +1,6 @@
 <view class="page">
   <view class="card">
-    <!-- 头像 -->
+    <!-- 头像（仅本地缓存，不上传服务器） -->
     <view class="avatar-row">
       <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
         <image class="avatar" wx:if="{{displayAvatarUrl}}" src="{{displayAvatarUrl}}" mode="aspectFill" />
@@ -8,6 +8,7 @@
         <view class="avatar-edit">点击更换头像</view>
       </button>
     </view>
+    <view class="avatar-note">头像仅在本机显示、不上传服务器；昵称用于研究人员识别您的录音</view>
 
     <!-- 姓名 -->
     <view class="form-row">

@@ -257,10 +257,9 @@ Page({
   },
 
   async _saveAvatarNickname() {
-    // 本地临时头像先上传成服务器 URL（跨设备持久），再随资料更新落库
-    const serverAvatar = await speaker.ensureAvatarUrl(this.data.avatarUrl)
+    // 头像仅本地缓存展示（隐私指引声明：不存储于服务器）；昵称提交服务器供后台识别发音人
+    await speaker.saveLocalAvatar(this.data.avatarUrl)
     const patch = {}
-    if (serverAvatar) patch.avatar_url = serverAvatar
     if (this.data.nickname) patch.nickname = this.data.nickname
     return Object.keys(patch).length ? speaker.updateProfile(patch) : Promise.resolve()
   },

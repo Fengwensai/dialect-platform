@@ -14,12 +14,14 @@ class RecordingOut(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    """小程序 wx.login 换 token。code 必填，device_id 用于与既有录音身份统一。"""
+    """小程序 wx.login 换 token。code 必填，device_id 用于与既有录音身份统一。
+
+    合规整改：头像不再上传服务器（隐私指引声明仅本地缓存），故不再接收 avatar_url。
+    """
 
     code: str
     device_id: str | None = None
     nickname: str | None = None
-    avatar_url: str | None = None
     province_code: str | None = None
     gender: str | None = None
     age_bracket: str | None = None
@@ -28,13 +30,13 @@ class LoginRequest(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     """发音人自助更新资料。null/缺省=不改；空串 ""=清空（nickname 空串/缺省=不改）。
 
+    合规整改：头像不再上传服务器，故 avatar_url 移出更新范围（仅昵称/性别/年龄段）。
     属地（province_code/city_code）由团队码绑定决定，此处不允许自改。
     """
 
     gender: str | None = None
     age_bracket: str | None = None
     nickname: str | None = None
-    avatar_url: str | None = None
 
 
 class SpeakerOut(BaseModel):
