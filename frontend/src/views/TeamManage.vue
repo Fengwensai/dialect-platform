@@ -3,7 +3,7 @@
     <!-- 工具栏 -->
     <el-card shadow="never" style="margin-bottom: 12px">
       <div class="filter-bar">
-        <span class="hint">团队码一码一区（省+市）：发音人凭码绑定属地，绑定后只能看到/录制该地区任务</span>
+        <span class="hint">团队码一码一区县（省+市+区县）：发音人凭码绑定属地，绑定后只能看到/录制该区县（及本市未限定区县）任务</span>
         <el-button type="primary" :icon="Plus" @click="openCreate">新建团队码</el-button>
         <span class="total">共 {{ items.length }} 个</span>
       </div>
@@ -24,6 +24,9 @@
         </el-table-column>
         <el-table-column label="市" width="120">
           <template #default="{ row }">{{ regionName(row.city_code) }}</template>
+        </el-table-column>
+        <el-table-column label="区县" width="120">
+          <template #default="{ row }">{{ row.district_code ? regionName(row.district_code) : '全市' }}</template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="170">
           <template #default="{ row }">{{ row.created_at?.slice(0, 16) }}</template>
@@ -53,7 +56,7 @@
             filterable
             :disabled="!auth.isSuper"
             style="width: 100%"
-            @change="createForm.city_code = ''"
+            @change="createForm.city_code = ''; createForm.district_code = ''"
           >
             <el-option v-for="p in provinceOptions" :key="p.code" :label="p.name" :value="p.code" />
           </el-select>
@@ -64,8 +67,19 @@
             placeholder="选择城市"
             filterable
             style="width: 100%"
+            @change="createForm.district_code = ''"
           >
             <el-option v-for="c in createCityOptions" :key="c.code" :label="c.name" :value="c.code" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="区县">
+          <el-select
+            v-model="createForm.district_code"
+            placeholder="选择区县（必选）"
+            filterable
+            style="width: 100%"
+          >
+            <el-option v-for="d in createDistrictOptions" :key="d.code" :label="d.name" :value="d.code" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -106,7 +120,7 @@ const saving = ref(false)
 const items = ref([])
 
 const createVisible = ref(false)
-const createForm = reactive({ code: '', name: '', province_code: '', city_code: '' })
+const createForm = reactive({ code: '', name: '', province_code: '', city_code: '', district_code: '' })
 
 const editVisible = ref(false)
 const editForm = reactive({ id: null, name: '' })
@@ -120,6 +134,12 @@ const provinceOptions = computed(() => {
 const createCityOptions = computed(() => {
   const p = (regionStore.tree || []).find((x) => x.code === createForm.province_code)
   return (p && p.children) || []
+})
+
+const createDistrictOptions = computed(() => {
+  const p = (regionStore.tree || []).find((x) => x.code === createForm.province_code)
+  const c = p && (p.children || []).find((x) => x.code === createForm.city_code)
+  return (c && c.children) || []
 })
 
 function regionName(code) {
@@ -137,7 +157,7 @@ async function load() {
 }
 
 function openCreate() {
-  Object.assign(createForm, { code: '', name: '', province_code: auth.provinceCode || '', city_code: '' })
+  Object.assign(createForm, { code: '', name: '', province_code: auth.provinceCode || '', city_code: '', district_code: '' })
   createVisible.value = true
 }
 
@@ -146,8 +166,8 @@ async function create() {
     ElMessage.warning('请填写团队码')
     return
   }
-  if (!createForm.province_code || !createForm.city_code) {
-    ElMessage.warning('请选择省和市')
+  if (!createForm.province_code || !createForm.city_code || !createForm.district_code) {
+    ElMessage.warning('请选择省、市、区县（三级必选）')
     return
   }
   saving.value = true
@@ -156,9 +176,10 @@ async function create() {
       code: createForm.code.trim(),
       name: createForm.name.trim(),
       province_code: createForm.province_code,
-      city_code: createForm.city_code
+      city_code: createForm.city_code,
+      district_code: createForm.district_code
     })
-    ElMessage.success('已创建（一码一区）')
+    ElMessage.success('已创建（一码一区县）')
     createVisible.value = false
     load()
   } finally {

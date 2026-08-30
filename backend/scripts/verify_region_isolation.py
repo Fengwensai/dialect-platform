@@ -78,35 +78,49 @@ for tc in db.query(TeamCode).filter(TeamCode.code.like(prefix + "%")).all():
 db.commit()
 
 codes = {}
-# 13/1301 已有真实团队 HB-SJZ（一码一区），测试发音人直接绑定它
-for code, name, prov, city in [
-    (prefix + "SY", "沈阳验证团队", "21", "2101"),
-    (prefix + "HB-LF", "廊坊验证团队", "13", "1310"),
+# 13/1301 已有真实团队 HB-SJZ（市级团队 district=NULL），测试发音人直接绑定它。
+# 新建团队一码一区县（省+市+区三级必选）。
+for code, name, prov, city, district in [
+    (prefix + "SY", "沈阳验证团队", "21", "2101", "210102"),
+    (prefix + "HB-LF", "廊坊验证团队", "13", "1310", "131002"),
 ]:
     r = api("POST", "/api/team-codes", token=SUPER,
-            body={"code": code, "name": name, "province_code": prov, "city_code": city})
+            body={"code": code, "name": name, "province_code": prov, "city_code": city, "district_code": district})
     ok = r.status_code == 200
     expect(ok, f"创建团队码 {code}", j(r))
     codes[code] = r.json()["id"] if ok else None
+    if ok:
+        expect(r.json().get("district_code") == district, f"{code} 返回区县", r.json().get("district_code"))
 
-# 一码一区：同省同市再建 → 400
+# 一码一区县：同省同市同区再建 → 400
 r = api("POST", "/api/team-codes", token=SUPER,
-        body={"code": prefix + "SY2", "name": "重复", "province_code": "21", "city_code": "2101"})
-expect(r.status_code == 400 and "一码一区" in str(j(r)), "一码一区重复区拒绝", str(r.status_code) + " " + str(j(r)))
+        body={"code": prefix + "SY2", "name": "重复", "province_code": "21", "city_code": "2101", "district_code": "210102"})
+expect(r.status_code == 400 and "一码一区" in str(j(r)), "一码一区县重复区拒绝", str(r.status_code) + " " + str(j(r)))
+
+# 同市不同区 → 可建（市级团队与区级团队共存，一区一码）
+r = api("POST", "/api/team-codes", token=SUPER,
+        body={"code": prefix + "SY-2", "name": "同市他区", "province_code": "21", "city_code": "2101", "district_code": "210103"})
+expect(r.status_code == 200, "同市不同区可建", str(r.status_code) + " " + str(j(r)))
+codes[prefix + "SY-2"] = r.json()["id"] if r.status_code == 200 else None
+
+# 区县不属于市 → 422
+r = api("POST", "/api/team-codes", token=SUPER,
+        body={"code": prefix + "BADD", "name": "区县错配", "province_code": "13", "city_code": "1301", "district_code": "210102"})
+expect(r.status_code == 422, "错配省市县拒绝", str(r.status_code) + " " + str(j(r)))
 
 # 重复码 → 400
 r = api("POST", "/api/team-codes", token=SUPER,
-        body={"code": prefix + "SY", "name": "重复码", "province_code": "13", "city_code": "1301"})
+        body={"code": prefix + "SY", "name": "重复码", "province_code": "13", "city_code": "1301", "district_code": "130102"})
 expect(r.status_code == 400 and "已存在" in str(j(r)), "重复团队码拒绝", str(r.status_code))
 
 # 城市不属于省 → 422
 r = api("POST", "/api/team-codes", token=SUPER,
-        body={"code": prefix + "BAD", "name": "错配", "province_code": "21", "city_code": "1301"})
+        body={"code": prefix + "BAD", "name": "错配", "province_code": "21", "city_code": "1301", "district_code": "130102"})
 expect(r.status_code == 422, "错配省市拒绝", str(r.status_code) + " " + str(j(r)))
 
 # 省管理员越省创建 → 403
 r = api("POST", "/api/team-codes", token=HB,
-        body={"code": prefix + "SYX", "name": "越省", "province_code": "21", "city_code": "2101"})
+        body={"code": prefix + "SYX", "name": "越省", "province_code": "21", "city_code": "2101", "district_code": "210102"})
 expect(r.status_code == 403, "省管理员越省创建拒绝", str(r.status_code))
 
 # 省管理员列表仅本省
@@ -119,7 +133,7 @@ r = api("PATCH", f"/api/team-codes/{codes[prefix+'SY']}", token=SUPER, body={"na
 expect(r.status_code == 200 and r.json()["name"].endswith("(改)"), "团队码改名", str(j(r)))
 
 # 3) 发音人准备（建 2 个：一个未绑定，一个 1301）
-def make_speaker(device_id, nickname, bound_to=None):
+def make_speaker(device_id, nickname, bound_to=None, district=None):
     """创建/复用测试发音人；默认重置为未绑定（避免上一轮残留属地）。"""
     sp = db.query(Speaker).filter(Speaker.device_id == device_id).first()
     if sp is None:
@@ -129,9 +143,11 @@ def make_speaker(device_id, nickname, bound_to=None):
         db.refresh(sp)
     sp.province_code = None
     sp.city_code = None
+    sp.district_code = None
     sp.team_code = None
     if bound_to:
         sp.province_code, sp.city_code, sp.team_code = bound_to
+        sp.district_code = district
     db.commit()
     db.refresh(sp)
     return sp
@@ -248,6 +264,47 @@ if item:
                                Recording.task_id == task.id).delete()
     db.commit()
 
+# 5c) 区县级过滤（任务也按区县过滤）：绑定区级团队发音人
+#    → 只见本区县任务 + 本市市级任务，不见他区区县任务
+DISTRICT = "130108"   # 石家庄裕华区
+OTHER_DISTRICT = "130102"  # 石家庄长安区
+sp_district = make_speaker("verify_district", "区县发音人",
+                           bound_to=("13", "1301", prefix + "SJZ-YH"), district=DISTRICT)
+tok_district = create_access_token({"speaker_id": sp_district.id, "openid": "", "role": "speaker"})
+accept_agreements(tok_district)
+
+# 区级团队：13/1301/130108（与市级团队 HB-SJZ 共存，一码一区县）
+r = api("POST", "/api/team-codes", token=SUPER,
+        body={"code": prefix + "SJZ-YH", "name": "石家庄裕华团队", "province_code": "13",
+              "city_code": "1301", "district_code": DISTRICT})
+expect(r.status_code == 200, "创建区级团队(13/1301/130108)", str(r.status_code) + " " + str(j(r)))
+
+def ensure_district_task(name, district):
+    t = db.query(TaskBatch).filter(TaskBatch.name == name).first()
+    if t is not None:
+        return t
+    w = db.query(WordLibrary).filter(WordLibrary.province_code == "13").first()
+    t = TaskBatch(name=name, province_code="13", city_code="1301", district_code=district,
+                  status="published", description="自动化验证")
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    if w:
+        db.add(TaskBatchItem(task_batch_id=t.id, word_id=w.id))
+        db.commit()
+    return t
+
+task_yh = ensure_district_task("验证-石家庄裕华区任务", DISTRICT)
+task_ca = ensure_district_task("验证-石家庄长安区任务", OTHER_DISTRICT)
+
+r = api("GET", "/api/mp/tasks", token=tok_district)
+ids = [t["id"] for t in r.json().get("items", [])]
+expect(task_yh.id in ids, "本区县任务可见", f"ids={ids}")
+expect(task_ca.id not in ids, "他区区县任务不可见", f"ids={ids}")
+expect(task.id in ids, "本市市级任务仍可见", f"ids={ids}")
+r = api("GET", f"/api/mp/tasks/{task_ca.id}/words", token=tok_district)
+expect(r.status_code == 403, "他区区县词表拒绝", str(r.status_code) + " " + str(j(r)))
+
 # 6) 管理端属地纠错
 r = api("PATCH", f"/api/speakers/{sp_unbound.id}", token=SUPER,
         body={"gender": "male", "age_bracket": "age18_30", "province_code": "21", "city_code": "2101"})
@@ -292,7 +349,7 @@ if tc_id:
            "删码后已绑定发音人属地保留", json.dumps(sp_row, ensure_ascii=False))
 
 # 清理验证数据
-for sp in db.query(Speaker).filter(Speaker.device_id.in_(["verify_unbound", "verify_hb", "verify_invalid", "verify_hb_unbound"])).all():
+for sp in db.query(Speaker).filter(Speaker.device_id.in_(["verify_unbound", "verify_hb", "verify_invalid", "verify_hb_unbound", "verify_district"])).all():
     db.query(Recording).filter(Recording.speaker_id == sp.id).delete()
     db.query(TaskClaim).filter(TaskClaim.speaker_id == sp.id).delete()
     db.execute(text("DELETE FROM speaker_agreements WHERE speaker_id = :sid"), {"sid": sp.id})

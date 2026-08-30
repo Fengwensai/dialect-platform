@@ -48,6 +48,7 @@ class SpeakerOut(BaseModel):
     avatar_url: str | None = None
     province_code: str | None = None
     city_code: str | None = None
+    district_code: str | None = None
     team_code: str | None = None
     gender: str | None = None
     age_bracket: str | None = None

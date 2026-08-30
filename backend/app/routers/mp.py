@@ -21,7 +21,7 @@ from fastapi import (
     Response,
     UploadFile,
 )
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..core.agreements import (
@@ -103,13 +103,16 @@ def _bound_or_400(speaker: Speaker) -> None:
 
 
 def _region_matches(speaker: Speaker, task: TaskBatch) -> bool:
-    """任务属地 == 发音人属地（省+市严格相等；市级任务不投省级）。"""
-    return bool(
-        speaker.province_code
-        and speaker.city_code
-        and task.province_code == speaker.province_code
-        and task.city_code == speaker.city_code
-    )
+    """任务属地 == 发音人属地（同省同市；任务未限定区县则全城可见，限定了仅本区可见）。"""
+    if not (speaker.province_code and speaker.city_code):
+        return False
+    if task.province_code != speaker.province_code:
+        return False
+    if task.city_code != speaker.city_code:
+        return False
+    if task.district_code and task.district_code != speaker.district_code:
+        return False
+    return True
 
 
 def _speaker_upsert(
@@ -577,10 +580,10 @@ def team_join(
     db: Session = Depends(get_db),
     speaker: Speaker = Depends(require_agreements_accepted),
 ):
-    """加入团队：凭团队码绑定属地（省+市），绑定后锁定不可自改。
+    """加入团队：凭团队码绑定属地（省+市+区县），绑定后锁定不可自改。
 
-    一码一区（后台建码时保证），同地区发音人绑到同一属地，天然隔离——
-    只能看到/录制本地区任务。
+    一码一区县（后台建码时保证），同地区发音人绑到同一属地，天然隔离——
+    只能看到/录制本区县（及本市未限定区县）任务。
     """
     if speaker.team_code:
         raise HTTPException(
@@ -595,6 +598,7 @@ def team_join(
         raise HTTPException(status_code=404, detail="团队码不存在或已停用")
     speaker.province_code = tc.province_code
     speaker.city_code = tc.city_code
+    speaker.district_code = tc.district_code
     speaker.team_code = tc.code
     db.commit()
     db.refresh(speaker)
@@ -608,7 +612,7 @@ def mp_tasks(
     db: Session = Depends(get_db),
     speaker: Speaker = Depends(require_agreements_accepted),
 ):
-    """我的可用任务：强制按发音人属地（省+市）返回已发布任务，附词条数与我的已录进度。
+    """我的可用任务：强制按发音人属地（省+市+区县）返回已发布任务，附词条数与我的已录进度。
 
     阶段八隔离：服务端按 speaker 绑定属地过滤，忽略任何客户端区域参数；
     未绑定团队返回空列表。
@@ -623,6 +627,10 @@ def mp_tasks(
             TaskBatch.is_demo.is_(False),
             TaskBatch.province_code == speaker.province_code,
             TaskBatch.city_code == speaker.city_code,
+            or_(
+                TaskBatch.district_code.is_(None),
+                TaskBatch.district_code == speaker.district_code,
+            ),
         )
     total = q.count()
     batches = (

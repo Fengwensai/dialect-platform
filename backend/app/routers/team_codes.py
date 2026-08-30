@@ -1,4 +1,4 @@
-"""团队码管理（阶段八）：一码一区（省+市），发音人凭码绑定属地。
+"""团队码管理（阶段八）：一码一区县（省+市+区），发音人凭码绑定属地。
 
 超管管理全国团队码；省管理员仅能管理本省团队码。改区域/改码会让已绑定发音人
 失联，故只允许改名，区域变更需删除后重建。
@@ -32,14 +32,17 @@ def _assert_region_scope(admin: AdminUser, province_code: str) -> None:
         raise HTTPException(status_code=403, detail="省管理员只能管理本省的团队码")
 
 
-def _validate_region(db: Session, province_code: str, city_code: str) -> None:
-    """校验省+市是有效的一级/二级区划，且市归属该省。"""
+def _validate_region(db: Session, province_code: str, city_code: str, district_code: str) -> None:
+    """校验省市区是有效的一级/二级/三级区划，且市归属该省、区归属该市。"""
     province = db.get(Region, province_code)
     if province is None or province.level != 1:
         raise HTTPException(status_code=422, detail="province_code 无效，须为有效省级代码")
     city = db.get(Region, city_code)
     if city is None or city.level != 2 or city.parent_code != province_code:
         raise HTTPException(status_code=422, detail="city_code 无效，须为归属该省的市级代码")
+    district = db.get(Region, district_code)
+    if district is None or district.level != 3 or district.parent_code != city_code:
+        raise HTTPException(status_code=422, detail="district_code 无效，须为归属该市的区县级代码")
 
 
 @router.get("", response_model=list[TeamCodeOut])
@@ -63,12 +66,12 @@ def create_team_code(
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
-    """创建团队码：code 唯一、一码一区（省+市唯一）。"""
+    """创建团队码：code 唯一、一码一区县（省+市+区唯一，三级必选）。"""
     code = _normalize(body.code)
     if not code:
         raise HTTPException(status_code=422, detail="团队码不能为空")
     _assert_region_scope(admin, body.province_code)
-    _validate_region(db, body.province_code, body.city_code)
+    _validate_region(db, body.province_code, body.city_code, body.district_code)
     if db.query(TeamCode).filter(TeamCode.code == code).first():
         raise HTTPException(status_code=400, detail="团队码已存在")
     exists = (
@@ -76,13 +79,14 @@ def create_team_code(
         .filter(
             TeamCode.province_code == body.province_code,
             TeamCode.city_code == body.city_code,
+            TeamCode.district_code == body.district_code,
         )
         .first()
     )
     if exists:
         raise HTTPException(
             status_code=400,
-            detail="该省市已有团队码（一码一区），如需更换请删除后重建",
+            detail="该省市区县已有团队码（一码一区县），如需更换请删除后重建",
         )
 
     tc = TeamCode(
@@ -90,6 +94,7 @@ def create_team_code(
         name=body.name.strip() or code,
         province_code=body.province_code,
         city_code=body.city_code,
+        district_code=body.district_code,
         created_by=admin.id,
     )
     db.add(tc)

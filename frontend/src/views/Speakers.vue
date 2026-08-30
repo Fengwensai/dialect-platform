@@ -65,7 +65,7 @@
               placeholder="省"
               filterable
               :disabled="!auth.isSuper"
-              style="width: 46%"
+              style="width: 33%"
               @change="onProvinceChange"
             >
               <el-option v-for="p in editProvinceOptions" :key="p.code" :label="p.name" :value="p.code" />
@@ -74,9 +74,19 @@
               v-model="editForm.city_code"
               placeholder="市"
               filterable
-              style="width: 46%"
+              style="width: 33%"
+              @change="onCityChange"
             >
               <el-option v-for="c in editCityOptions" :key="c.code" :label="c.name" :value="c.code" />
+            </el-select>
+            <el-select
+              v-model="editForm.district_code"
+              placeholder="区县"
+              filterable
+              clearable
+              style="width: 33%"
+            >
+              <el-option v-for="d in editDistrictOptions" :key="d.code" :label="d.name" :value="d.code" />
             </el-select>
           </div>
           <div v-if="auth.isSuper" class="region-hint">修改属地会解除原团队绑定</div>
@@ -156,7 +166,7 @@
             <span class="detail-sub">ID {{ detailSpeaker.id }}</span>
             <span v-if="detailSpeaker.device_id" class="detail-sub">设备 {{ detailSpeaker.device_id }}</span>
             <span v-if="detailSpeaker.province_code" class="detail-sub">
-              {{ regionName(detailSpeaker.province_code) }}<template v-if="detailSpeaker.city_code">·{{ regionName(detailSpeaker.city_code) }}</template>
+              {{ regionName(detailSpeaker.province_code) }}<template v-if="detailSpeaker.city_code">·{{ regionName(detailSpeaker.city_code) }}</template><template v-if="detailSpeaker.district_code">·{{ regionName(detailSpeaker.district_code) }}</template>
             </span>
             <span class="detail-sub">性别 {{ genderText(detailSpeaker.gender) }}</span>
             <span class="detail-sub">年龄段 {{ ageText(detailSpeaker.age_bracket) }}</span>
@@ -309,9 +319,10 @@ const { pageSize, keyword, filterProvince, filterGender, filterAgeBracket } =
   })
 
 const editVisible = ref(false)
-const editForm = reactive({ id: null, nickname: '', gender: '', age_bracket: '', province_code: '', city_code: '', team_code: '' })
+const editForm = reactive({ id: null, nickname: '', gender: '', age_bracket: '', province_code: '', city_code: '', district_code: '', team_code: '' })
 const origProvince = ref('')
 const origCity = ref('')
+const origDistrict = ref('')
 
 const mergeVisible = ref(false)
 const mergeRow = ref(null)
@@ -360,8 +371,19 @@ const editCityOptions = computed(() => {
   return (p && p.children) || []
 })
 
+const editDistrictOptions = computed(() => {
+  const p = (regionStore.tree || []).find((x) => x.code === editForm.province_code)
+  const c = p && (p.children || []).find((x) => x.code === editForm.city_code)
+  return (c && c.children) || []
+})
+
 function onProvinceChange() {
   editForm.city_code = ''
+  editForm.district_code = ''
+}
+
+function onCityChange() {
+  editForm.district_code = ''
 }
 
 function regionName(code) {
@@ -413,6 +435,7 @@ const columns = computed(() => [
       if (!rowData.province_code) return h(ElTag, { type: 'info', size: 'small' }, () => '未绑定')
       const parts = [regionName(rowData.province_code)]
       if (rowData.city_code) parts.push(regionName(rowData.city_code))
+      if (rowData.district_code) parts.push(regionName(rowData.district_code))
       return parts.join('·')
     }
   },
@@ -587,10 +610,12 @@ function openEdit(row) {
     age_bracket: row.age_bracket || '',
     province_code: province,
     city_code: row.city_code || '',
+    district_code: row.district_code || '',
     team_code: row.team_code || ''
   })
   origProvince.value = row.province_code || ''
   origCity.value = row.city_code || ''
+  origDistrict.value = row.district_code || ''
   editVisible.value = true
 }
 
@@ -604,6 +629,7 @@ async function save() {
     // 属地纠错：仅提交发生变化的字段（省管理员不能越省）
     if (editForm.province_code !== origProvince.value) payload.province_code = editForm.province_code
     if (editForm.city_code !== origCity.value) payload.city_code = editForm.city_code
+    if (editForm.district_code !== origDistrict.value) payload.district_code = editForm.district_code
     await request.patch(`/speakers/${editForm.id}`, payload)
     ElMessage.success('已保存')
     editVisible.value = false

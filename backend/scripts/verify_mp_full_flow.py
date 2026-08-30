@@ -97,7 +97,7 @@ def main():
 
         # —— 1. 建团队码（11/1101，北京）——
         r = api("POST", "/api/team-codes", token=SUPER,
-                body={"code": TEAM, "name": "验证端到端团队", "province_code": PROV, "city_code": CITY})
+                body={"code": TEAM, "name": "验证端到端团队", "province_code": PROV, "city_code": CITY, "district_code": "110101"})
         check("创建团队码 VFY0-FLOW", r.status_code == 200,
               str(r.status_code) + " " + str(j(r)) if r.status_code != 200 else "")
 

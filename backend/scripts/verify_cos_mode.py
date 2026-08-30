@@ -142,7 +142,7 @@ def main():
         # —— 2. 建团队码 / 词条 / 任务发布 ——
         r = c.post("/api/team-codes", headers={"Authorization": f"Bearer {SUPER}"},
                    json={"code": TEAM, "name": "验证COS团队", "province_code": PROV,
-                         "city_code": CITY})
+                         "city_code": CITY, "district_code": "110101"})
         check("建团队码 VFY0-COS", r.status_code == 200, str(r.status_code) + " " + str(r.json()))
         w1 = WordLibrary(code="VFY0-C1", dialect_point="北京话", content="COS词条一",
                          example_sentence="测试。", province_code=PROV, status="active")

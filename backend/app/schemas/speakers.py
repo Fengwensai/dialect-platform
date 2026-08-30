@@ -6,13 +6,15 @@ from pydantic import BaseModel, ConfigDict
 class SpeakerUpdate(BaseModel):
     """后台编辑发音人画像/属地。缺省=不改；null/空串=清空。
 
-    province_code/city_code 用于管理员纠错属地；改动会清空 team_code（原绑定作废）。
+    province_code/city_code/district_code 用于管理员纠错属地；改动会清空 team_code
+    （原绑定作废）。
     """
 
     gender: str | None = None
     age_bracket: str | None = None
     province_code: str | None = None
     city_code: str | None = None
+    district_code: str | None = None
     upload_paused: bool | None = None  # 质量预警：管理员一键暂停/恢复上传（缺省不改）
 
 
@@ -82,6 +84,7 @@ class SpeakerAdminOut(BaseModel):
     nickname: str
     province_code: str | None = None
     city_code: str | None = None
+    district_code: str | None = None
     team_code: str | None = None
     gender: str | None = None
     age_bracket: str | None = None

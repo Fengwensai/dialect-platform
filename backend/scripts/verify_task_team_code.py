@@ -67,9 +67,9 @@ db.commit()
 team_sjz = db.query(TeamCode).filter(TeamCode.code == "HB-SJZ").first()
 expect(team_sjz is not None, "复用已有团队 HB-SJZ (13/1301)")
 
-# 沈阳团队：新建 21/2101
+# 沈阳团队：新建 21/2101/210102（一码一区县，区县必选）
 r = api("POST", "/api/team-codes", token=SUPER,
-        body={"code": PREFIX + "SY", "name": "沈阳验证团队", "province_code": "21", "city_code": "2101"})
+        body={"code": PREFIX + "SY", "name": "沈阳验证团队", "province_code": "21", "city_code": "2101", "district_code": "210102"})
 ok = r.status_code == 200
 expect(ok, "创建团队码 VFY9-SY", str(r.status_code) + " " + str(j(r)))
 team_sy = r.json().get("id") if ok else None

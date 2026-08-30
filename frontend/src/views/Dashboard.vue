@@ -194,7 +194,7 @@
         <el-table-column label="属地" width="150">
           <template #default="{ row }">
             <template v-if="row.province_code">
-              {{ regionName(row.province_code) }}<template v-if="row.city_code">·{{ regionName(row.city_code) }}</template>
+              {{ regionName(row.province_code) }}<template v-if="row.city_code">·{{ regionName(row.city_code) }}</template><template v-if="row.district_code">·{{ regionName(row.district_code) }}</template>
             </template>
             <el-tag v-else type="info" size="small">未绑定</el-tag>
           </template>
@@ -274,7 +274,7 @@
             <span class="detail-sub">ID {{ detailSpeaker.id }}</span>
             <span v-if="detailSpeaker.device_id" class="detail-sub">设备 {{ detailSpeaker.device_id }}</span>
             <span v-if="detailSpeaker.province_code" class="detail-sub">
-              {{ regionName(detailSpeaker.province_code) }}<template v-if="detailSpeaker.city_code">·{{ regionName(detailSpeaker.city_code) }}</template>
+              {{ regionName(detailSpeaker.province_code) }}<template v-if="detailSpeaker.city_code">·{{ regionName(detailSpeaker.city_code) }}</template><template v-if="detailSpeaker.district_code">·{{ regionName(detailSpeaker.district_code) }}</template>
             </span>
             <span class="detail-sub">性别 {{ genderText(detailSpeaker.gender) }}</span>
             <span class="detail-sub">年龄段 {{ ageText(detailSpeaker.age_bracket) }}</span>

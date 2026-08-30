@@ -499,7 +499,7 @@ function teamOf(code) {
 function onTeamChange(code) {
   const t = code ? teamOf(code) : null
   if (t) {
-    taskRegion.value = [t.province_code, t.city_code]
+    taskRegion.value = t.district_code ? [t.province_code, t.city_code, t.district_code] : [t.province_code, t.city_code]
   } else {
     taskRegion.value = []
   }

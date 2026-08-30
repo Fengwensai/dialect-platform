@@ -99,7 +99,7 @@ def main():
 
         # —— 1. 建团队码 / 4 词条 / 任务发布 ——
         r = c.post("/api/team-codes", headers=SUPER,
-                   json={"code": TEAM, "name": "验证质量团队", "province_code": PROV, "city_code": CITY})
+                   json={"code": TEAM, "name": "验证质量团队", "province_code": PROV, "city_code": CITY, "district_code": "110101"})
         check("建团队码 VFYQ-01", r.status_code == 200, str(r.status_code) + " " + str(r.json()))
         words = []
         for i in range(4):

@@ -340,13 +340,25 @@ def update_speaker_profile(
             if city is None or city.level != 2 or city.parent_code != base_province:
                 raise HTTPException(status_code=422, detail="city_code 无效，须为归属该省的市级代码")
 
+    new_district = data.get("district_code") if "district_code" in data else None
+    if new_district is not None:
+        new_district = new_district or None
+        base_city = new_city if new_city is not None else speaker.city_code
+        if new_district:
+            district = db.get(Region, new_district)
+            if district is None or district.level != 3 or district.parent_code != base_city:
+                raise HTTPException(status_code=422, detail="district_code 无效，须为归属该市的区县级代码")
+
     province_changed = "province_code" in data and new_province != speaker.province_code
     city_changed = "city_code" in data and new_city != speaker.city_code
+    district_changed = "district_code" in data and new_district != speaker.district_code
     if province_changed:
         speaker.province_code = new_province
     if city_changed:
         speaker.city_code = new_city
-    if province_changed or city_changed:
+    if district_changed:
+        speaker.district_code = new_district
+    if province_changed or city_changed or district_changed:
         # 属地被改动 → 原团队码绑定作废
         speaker.team_code = None
         # 领取制（阶段十一）：旧属地任务已无法访问，清掉该发音人未录制的孤儿领取、
