@@ -4,7 +4,14 @@
   display: flex;
   flex-direction: column;
   padding: 0 64rpx;
-  background: linear-gradient(180deg, #2b6cb0 0%, #4299e1 42%, #f5f6f7 42.1%);
+  /* 网格修饰叠加进背景（对齐后台登录页）：白线网格在最上层，蓝色渐变在下层；
+     网格作为 .page 自身背景的一部分，天然位于所有内容之下，无需额外层级处理。
+     白线在蓝色区清晰、在底部浅灰区几乎不可见 → 只在蓝色区浮现 */
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(180deg, #2b6cb0 0%, #4299e1 42%, #f5f6f7 42.1%);
+  background-size: 48rpx 48rpx, 48rpx 48rpx, 100% 100%;
 }
 
 .brand {
