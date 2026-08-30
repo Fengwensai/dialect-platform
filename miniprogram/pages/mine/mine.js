@@ -248,7 +248,8 @@ Page({
       success: (r) => {
         if (r.confirm) {
           speaker.clearToken()
-          wx.reLaunch({ url: '/pages/login/login' })
+          // 退出后回首页（可浏览），登录仍由用户主动触发
+          wx.switchTab({ url: '/pages/index/index' })
         }
       }
     })
