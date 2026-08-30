@@ -8,8 +8,14 @@
     </view>
   </view>
 
-  <!-- 未绑定团队门禁：绑定后才能领取/录制本地区任务 -->
-  <view class="bind-banner" wx:if="{{!bound}}">
+  <!-- 未登录：可浏览功能，登录由用户主动选择（审核整改：先浏览后登录） -->
+  <view class="login-banner" wx:if="{{!loggedIn}}">
+    <view class="login-text">登录后可绑定团队、领取本地区任务并录制乡音，进度自动同步</view>
+    <button class="login-btn" bindtap="goLogin" hover-class="bind-btn-hover">微信登录</button>
+  </view>
+
+  <!-- 已登录未绑定团队门禁：绑定后才能领取/录制本地区任务 -->
+  <view class="bind-banner" wx:elif="{{!bound}}">
     <view class="bind-text">尚未加入团队，绑定后才能领取本地区任务并录音</view>
     <button class="bind-btn" bindtap="onBindTeam">绑定团队</button>
   </view>

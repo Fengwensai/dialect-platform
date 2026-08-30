@@ -3,6 +3,7 @@ const speaker = require('../../utils/speaker')
 
 Page({
   data: {
+    loggedIn: false, // 是否已登录（微信违规整改：未登录也可浏览首页，登录由用户主动触发）
     speakerName: '',
     bound: false, // 是否已加入团队（绑定属地）
     bindVisible: false, // 绑定团队弹窗
@@ -12,10 +13,12 @@ Page({
   },
 
   onShow() {
+    // 先浏览后登录（审核整改）：未登录不再强制跳登录页，留在首页可浏览功能入口
     if (!speaker.isLoggedIn()) {
-      wx.reLaunch({ url: '/pages/login/login' })
+      this.setData({ loggedIn: false, speakerName: '', bound: false, bindVisible: false })
       return
     }
+    this.setData({ loggedIn: true })
     this.refreshSpeaker()
   },
 
@@ -27,9 +30,15 @@ Page({
     })
   },
 
-  /** 首页未绑定门禁：横幅点「绑定团队」→ 弹自定义输入框 */
+  /** 去登录页（用户主动触发；登录后 switchTab 回首页） */
+  goLogin() {
+    wx.navigateTo({ url: '/pages/login/login' })
+  },
+
+  /** 首页未绑定门禁：横幅点「绑定团队」→ 弹自定义输入框（未登录先登录） */
   onBindTeam() {
     if (this.data.binding) return
+    if (!speaker.isLoggedIn()) return this.goLogin()
     this.setData({ bindVisible: true, teamCode: '', bindInputFocus: false })
   },
 
@@ -81,10 +90,12 @@ Page({
   },
 
   goRecord() {
+    if (!speaker.isLoggedIn()) return this.goLogin()
     wx.navigateTo({ url: '/pages/record/record' })
   },
 
   goTasks() {
+    if (!speaker.isLoggedIn()) return this.goLogin()
     wx.navigateTo({ url: '/pages/tasks/tasks' })
   }
 })

@@ -1,6 +1,13 @@
 <view class="page">
-  <!-- 用户信息卡（头像/姓名/方言点/个人信息 汇总，点击进入编辑页） -->
-  <view class="user-card" bindtap="goProfile" hover-class="user-card-hover">
+  <!-- 未登录：登录引导卡（先浏览后登录整改，登录由用户主动触发） -->
+  <view class="login-card" wx:if="{{!loggedIn}}">
+    <view class="login-card-title">登录后使用完整功能</view>
+    <view class="login-card-desc">绑定团队、领取本地区任务、录制乡音、上传录音与查看审核进度、导出录音时长</view>
+    <button class="login-card-btn" bindtap="goLogin" hover-class="user-card-hover">微信登录</button>
+  </view>
+
+  <!-- 已登录：用户信息卡（头像/姓名/方言点/个人信息 汇总，点击进入编辑页） -->
+  <view class="user-card" wx:else bindtap="goProfile" hover-class="user-card-hover">
     <image class="avatar" wx:if="{{displayAvatarUrl}}" src="{{displayAvatarUrl}}" mode="aspectFill" />
     <view class="avatar avatar-placeholder" wx:else>👤</view>
     <view class="user-info">
@@ -71,7 +78,7 @@
     </view>
   </view>
 
-  <view class="logout-wrap">
+  <view class="logout-wrap" wx:if="{{loggedIn}}">
     <button class="btn-danger logout-btn" bindtap="onLogout">退出登录</button>
   </view>
 </view>

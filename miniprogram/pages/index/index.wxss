@@ -106,6 +106,36 @@
   flex-shrink: 0; /* 箭头不参与压缩，始终完整显示 */
 }
 
+/* 未登录引导横幅（先浏览后登录）：主色提示，点「微信登录」主动登录 */
+.login-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ebf4ff;
+  border: 1rpx solid #bee3f8;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 32rpx;
+}
+
+.login-text {
+  flex: 1;
+  font-size: 24rpx;
+  color: #2b6cb0;
+  line-height: 1.5;
+}
+
+.login-btn {
+  margin-left: 24rpx;
+  flex-shrink: 0;
+  font-size: 24rpx;
+  color: #fff;
+  background: linear-gradient(135deg, #2b6cb0, #4299e1);
+  border-radius: 999rpx;
+  padding: 8rpx 28rpx;
+  line-height: 1.6;
+}
+
 /* 未绑定团队横幅 */
 .bind-banner {
   display: flex;

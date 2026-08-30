@@ -2,6 +2,43 @@
   padding: 32rpx;
 }
 
+/* 未登录引导卡（先浏览后登录）：白底圆角 + 主色按钮 */
+.login-card {
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 40rpx 32rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 2rpx 12rpx rgba(45, 55, 72, 0.06);
+  margin-bottom: 32rpx;
+}
+
+.login-card-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #303133;
+}
+
+.login-card-desc {
+  font-size: 24rpx;
+  color: #909399;
+  line-height: 1.6;
+  margin-top: 12rpx;
+  text-align: center;
+}
+
+.login-card-btn {
+  margin-top: 28rpx;
+  font-size: 30rpx;
+  color: #fff;
+  background: linear-gradient(135deg, #2b6cb0, #4299e1);
+  border-radius: 999rpx;
+  padding: 0 56rpx;
+  height: 80rpx;
+  line-height: 80rpx;
+}
+
 .user-card {
   background: linear-gradient(135deg, #2b6cb0, #4299e1);
   border-radius: 20rpx;

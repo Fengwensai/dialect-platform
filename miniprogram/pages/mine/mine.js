@@ -20,6 +20,7 @@ const AGE_CODES = ['under18', 'age18_30', 'age31_45', 'age46_60', 'over60']
 
 Page({
   data: {
+    loggedIn: false, // 是否已登录（先浏览后登录整改：未登录也可进本页浏览，登录由用户主动触发）
     nickname: '',
     displayAvatarUrl: '', // 头像展示地址（/media 自动拼 API_BASE）
     provinceName: '',
@@ -35,10 +36,20 @@ Page({
   },
 
   onShow() {
+    // 先浏览后登录（审核整改）：未登录不强制跳登录页，本页可浏览常用功能，仅个人数据/接口延迟到登录
     if (!speaker.isLoggedIn()) {
-      wx.reLaunch({ url: '/pages/login/login' })
+      this.setData({
+        loggedIn: false,
+        nickname: '',
+        displayAvatarUrl: '',
+        provinceName: '',
+        profileText: ''
+      })
+      this.refreshStats() // 录音队列是本地数据，未登录也可看
+      this.setData({ autoUpload: queue.getAutoUpload() })
       return
     }
+    this.setData({ loggedIn: true })
     this.refreshUser()
     this.loadProvince()
     this.refreshStats()
@@ -46,7 +57,12 @@ Page({
     this.loadProgress().catch(() => {}) // 进页静默拉一次；失败不阻塞页面
   },
 
-  /** ③ 保存后自动上传开关 */
+  /** 去登录页（用户主动触发） */
+  goLogin() {
+    wx.navigateTo({ url: '/pages/login/login' })
+  },
+
+  /** ③ 保存后自动上传开关（本地功能，未登录也可用） */
   onToggleAutoUpload(e) {
     queue.setAutoUpload(e.detail.value)
   },
@@ -70,10 +86,12 @@ Page({
   },
 
   goQueue() {
+    // 录音队列是本地数据，未登录也可浏览
     wx.navigateTo({ url: '/pages/queue/queue' })
   },
 
   onUploadAll() {
+    if (!speaker.isLoggedIn()) return this.goLogin()
     if (this.data.flushing) return
     if (this.data.stats.pending === 0) {
       wx.showToast({ title: '没有待上传的录音', icon: 'none' })
@@ -97,11 +115,13 @@ Page({
   },
 
   goProgress() {
+    if (!speaker.isLoggedIn()) return this.goLogin()
     wx.navigateTo({ url: '/pages/progress/progress' })
   },
 
   /** 导出录音时长：先拉统计预览，确认后下载 CSV 并分享/保存 */
   onExportDuration() {
+    if (!speaker.isLoggedIn()) return this.goLogin()
     if (this.data.exporting) return
     api
       .request('/api/mp/me/durations')
@@ -204,6 +224,7 @@ Page({
   },
 
   goProfile() {
+    if (!speaker.isLoggedIn()) return this.goLogin()
     wx.navigateTo({ url: '/pages/profile/profile' })
   },
 
