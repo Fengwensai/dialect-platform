@@ -11,7 +11,7 @@
     linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px),
     linear-gradient(180deg, #2b6cb0 0%, #4299e1 42%, #f5f6f7 42.1%);
-  background-size: 48rpx 48rpx, 48rpx 48rpx, 100% 100%;
+  background-size: 64rpx 64rpx, 64rpx 64rpx, 100% 100%;
 }
 
 .brand {
