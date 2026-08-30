@@ -6,7 +6,7 @@
         <span class="logo-text">方言采集平台</span>
       </div>
       <div class="logo-line"></div>
-      <el-menu :default-active="$route.path" router class="menu">
+      <el-menu :default-active="activeMenu" router class="menu">
         <el-menu-item index="/excel"><el-icon><Upload /></el-icon><span>词表导入</span></el-menu-item>
         <el-menu-item index="/words"><el-icon><Notebook /></el-icon><span>词条管理</span></el-menu-item>
         <el-menu-item index="/tasks"><el-icon><Promotion /></el-icon><span>任务分配</span></el-menu-item>
@@ -47,11 +47,16 @@
 </template>
 
 <script setup>
-import { useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
+const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+
+// 详情类子页面（如 /tasks/:id）通过 meta.activeMenu 保持父菜单高亮
+const activeMenu = computed(() => route.meta.activeMenu || route.path)
 
 function onCommand(cmd) {
   if (cmd === 'logout') {

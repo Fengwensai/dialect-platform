@@ -11,6 +11,7 @@ const routes = [
       { path: 'excel', name: 'excel', component: () => import('../views/ExcelImport.vue'), meta: { title: '词表导入' } },
       { path: 'words', name: 'words', component: () => import('../views/WordLibrary.vue'), meta: { title: '词条管理' } },
       { path: 'tasks', name: 'tasks', component: () => import('../views/TaskAssign.vue'), meta: { title: '任务分配' } },
+      { path: 'tasks/:id', name: 'taskDetail', component: () => import('../views/TaskDetail.vue'), meta: { title: '任务详情', activeMenu: '/tasks' } },
       { path: 'review', name: 'review', component: () => import('../views/ReviewRecordings.vue'), meta: { title: '录音审核' } },
       { path: 'speakers', name: 'speakers', component: () => import('../views/Speakers.vue'), meta: { title: '发音人管理' } },
       { path: 'dashboard', name: 'dashboard', component: () => import('../views/Dashboard.vue'), meta: { title: '数据看板' } },

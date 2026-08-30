@@ -9,6 +9,7 @@ from ..core.task_progress import completion_status
 from ..db import get_db
 from ..models.admin import AdminUser
 from ..models.recording import Recording
+from ..models.region import Region
 from ..models.speaker import Speaker
 from ..models.task import TaskBatch, TaskBatchItem
 from ..models.task_claim import TaskClaim
@@ -18,6 +19,7 @@ from ..schemas.task import TaskBatchCreate, TaskBatchOut, TaskBatchUpdate, TaskC
 from ..schemas.word import WordOut
 from ..services import rate_limit
 from ..services.audit import log_admin_action
+from ..services.export import csv_response
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -248,6 +250,198 @@ def _task_out(db: Session, batch: TaskBatch) -> TaskBatchOut:
     out = TaskBatchOut.model_validate(batch)
     out.word_count = _word_count(db, batch.id)
     return out
+
+
+@router.get("/{batch_id}", response_model=TaskBatchOut)
+def task_detail(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """任务详情（供任务详情页展示）：基本信息 + 任务级进度。"""
+    batch = _get_task(db, admin, batch_id)
+    out = _task_out(db, batch)
+    out.recorded_count = (
+        db.query(func.count(func.distinct(Recording.word_id)))
+        .filter(Recording.task_id == batch.id)
+        .scalar()
+        or 0
+    )
+    out.approved_count = (
+        db.query(func.count(func.distinct(Recording.word_id)))
+        .filter(Recording.task_id == batch.id, Recording.status == "approved")
+        .scalar()
+        or 0
+    )
+    out.completion_status = completion_status(
+        batch.status, out.recorded_count, out.word_count, deadline_at=batch.deadline_at
+    )
+    return out
+
+
+def _task_contributor_rows(db: Session, batch_id: int) -> list[dict]:
+    """任务下发音人贡献行（全量、发音人ID升序）：计数 + 时长聚合 + 团队/属地名。
+
+    「有效时长」= 审核通过（approved）录音时长和；「无效时长」= 驳回（rejected）时长和。
+    """
+    agg_rows = (
+        db.query(
+            Recording.speaker_id,
+            Recording.status,
+            func.count(Recording.id),
+            func.sum(Recording.audio_duration),
+        )
+        .filter(Recording.task_id == batch_id)
+        .group_by(Recording.speaker_id, Recording.status)
+        .all()
+    )
+    dur_map: dict[tuple[int, str], tuple[int, int]] = {
+        (sid, st): (cnt, dur or 0) for sid, st, cnt, dur in agg_rows
+    }
+    speaker_ids = {sid for sid, _ in dur_map.keys()}
+    if not speaker_ids:
+        return []
+    speakers = {
+        s.id: s for s in db.query(Speaker).filter(Speaker.id.in_(speaker_ids)).all()
+    }
+    team_codes = {s.team_code for s in speakers.values() if s.team_code}
+    teams = {
+        t.code: t for t in db.query(TeamCode).filter(TeamCode.code.in_(team_codes)).all()
+    }
+    region_codes = {
+        c
+        for s in speakers.values()
+        for c in (s.province_code, s.city_code, s.district_code)
+        if c
+    }
+    region_names = {
+        r.code: r.name
+        for r in db.query(Region).filter(Region.code.in_(region_codes)).all()
+    }
+    last_active = dict(
+        db.query(Recording.speaker_id, func.max(Recording.created_at))
+        .filter(Recording.task_id == batch_id, Recording.speaker_id.in_(speaker_ids))
+        .group_by(Recording.speaker_id)
+        .all()
+    )
+
+    def _pick(sid, st):
+        return dur_map.get((sid, st), (0, 0))
+
+    rows = []
+    for sid in speaker_ids:
+        sp = speakers[sid]
+        pending_c, pending_d = _pick(sid, "pending")
+        approved_c, approved_d = _pick(sid, "approved")
+        rejected_c, rejected_d = _pick(sid, "rejected")
+        reviewed = approved_c + rejected_c
+        rows.append({
+            "speaker_id": sid,
+            "nickname": sp.nickname or "",
+            "device_id": sp.device_id or "",
+            "team_code": sp.team_code or "",
+            "team_name": teams[sp.team_code].name
+            if sp.team_code and sp.team_code in teams else "",
+            "province_name": region_names.get(sp.province_code, sp.province_code or ""),
+            "city_name": region_names.get(sp.city_code, sp.city_code or ""),
+            "district_name": region_names.get(sp.district_code, sp.district_code or ""),
+            "recording_total": pending_c + approved_c + rejected_c,
+            "pending": pending_c,
+            "approved": approved_c,
+            "rejected": rejected_c,
+            "total_duration_ms": pending_d + approved_d + rejected_d,
+            "valid_duration_ms": approved_d,
+            "invalid_duration_ms": rejected_d,
+            "approval_rate": round(approved_c / reviewed, 4) if reviewed else 0.0,
+            "last_active": last_active.get(sid),
+        })
+    rows.sort(key=lambda x: x["speaker_id"])  # 发音人 ID 正序
+    return rows
+
+
+@router.get("/{batch_id}/contributors")
+def task_contributors(
+    batch_id: int,
+    keyword: str | None = None,
+    team_code: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """任务下发音人贡献分页列表（发音人ID升序）。
+
+    summary 反映整个任务（不受筛选/分页影响），供详情页头部汇总。keyword 匹配昵称/设备ID。
+    """
+    _get_task(db, admin, batch_id)
+    rows = _task_contributor_rows(db, batch_id)
+    summary = {
+        "speaker_count": len(rows),
+        "recording_total": sum(r["recording_total"] for r in rows),
+        "approved_total": sum(r["approved"] for r in rows),
+        "valid_duration_ms": sum(r["valid_duration_ms"] for r in rows),
+    }
+    k = (keyword or "").strip().lower()
+    tc = _normalize(team_code) if team_code else None
+    if k or tc:
+        rows = [
+            r for r in rows
+            if (not k or (k in r["nickname"].lower() or k in r["device_id"].lower()))
+            and (not tc or r["team_code"] == tc)
+        ]
+    total = len(rows)
+    items = rows[(page - 1) * page_size : page * page_size]
+    return {"total": total, "items": items, "summary": summary}
+
+
+@router.get("/{batch_id}/export")
+def export_task_contributors(
+    batch_id: int,
+    keyword: str | None = None,
+    team_code: str | None = None,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """导出该任务的发音人贡献 CSV（全量，遵循 keyword/team_code 筛选）。"""
+    _get_task(db, admin, batch_id)
+    rows = _task_contributor_rows(db, batch_id)
+    k = (keyword or "").strip().lower()
+    tc = _normalize(team_code) if team_code else None
+    if k or tc:
+        rows = [
+            r for r in rows
+            if (not k or (k in r["nickname"].lower() or k in r["device_id"].lower()))
+            and (not tc or r["team_code"] == tc)
+        ]
+    columns = [
+        "发音人ID", "昵称", "设备ID", "团队码", "团队名", "省份", "城市", "区县",
+        "录音总数", "待审核数", "通过数", "驳回数",
+        "总时长_ms", "有效时长_ms", "无效时长_ms", "通过率", "最近提交时间",
+    ]
+    out = []
+    for r in rows:
+        out.append({
+            "发音人ID": r["speaker_id"],
+            "昵称": r["nickname"],
+            "设备ID": r["device_id"],
+            "团队码": r["team_code"],
+            "团队名": r["team_name"],
+            "省份": r["province_name"],
+            "城市": r["city_name"],
+            "区县": r["district_name"],
+            "录音总数": r["recording_total"],
+            "待审核数": r["pending"],
+            "通过数": r["approved"],
+            "驳回数": r["rejected"],
+            "总时长_ms": r["total_duration_ms"],
+            "有效时长_ms": r["valid_duration_ms"],
+            "无效时长_ms": r["invalid_duration_ms"],
+            "通过率": r["approval_rate"],
+            "最近提交时间": r["last_active"].strftime("%Y-%m-%d %H:%M:%S")
+            if r["last_active"] else "",
+        })
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return csv_response(out, columns, f"task_{batch_id}_{ts}.csv")
 
 
 @router.get("/{batch_id}/words", response_model=list[WordOut])

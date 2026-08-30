@@ -217,7 +217,9 @@
         <el-table-column label="任务名称" min-width="180">
           <template #default="{ row }">
             <el-tag v-if="row.is_demo" size="small" type="warning" style="margin-right: 4px">演示</el-tag>
-            <span>{{ row.name }}</span>
+            <el-link type="primary" @click="$router.push({ name: 'taskDetail', params: { id: row.id } })">
+              {{ row.name }}
+            </el-link>
           </template>
         </el-table-column>
         <el-table-column label="投放区划" width="150">
