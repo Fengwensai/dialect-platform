@@ -175,6 +175,7 @@
         </el-select>
         <el-input v-model="filterTeam" placeholder="团队码" clearable style="width: 130px" @keyup.enter="loadSpeakers" />
         <el-select v-model="sortBy" style="width: 130px">
+          <el-option label="按ID正序" value="id" />
           <el-option label="按录音数" value="recording" />
           <el-option label="按通过数" value="approved" />
           <el-option label="按总时长" value="duration" />
@@ -435,7 +436,7 @@ const filterProvince = ref('')
 const filterGender = ref('')
 const filterAgeBracket = ref('')
 const filterTeam = ref('')
-const sortBy = ref('recording')
+const sortBy = ref('id')
 const loading = ref(false)
 const exporting = ref(false)
 
@@ -591,7 +592,7 @@ function resetFilters() {
   filterGender.value = ''
   filterAgeBracket.value = ''
   filterTeam.value = ''
-  sortBy.value = 'recording'
+  sortBy.value = 'id'
   page.value = 1
   loadSpeakers()
 }

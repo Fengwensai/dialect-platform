@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/review", tags=["review"])
 
 VALID_STATUS = {"pending", "approved", "rejected"}
-VALID_SORTS = {"pending_first", "created", "duration", "reviewed"}
+VALID_SORTS = {"id", "pending_first", "created", "duration", "reviewed"}
 VALID_QUALITY = {"ok", "suspect", "unparsed"}
 
 def _scope_query(db: Session, admin: AdminUser, q):
@@ -77,13 +77,13 @@ def list_review_recordings(
     quality: str | None = None,
     keyword: str | None = None,
     province_code: str | None = None,
-    sort_by: str = "pending_first",
+    sort_by: str = "id",
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
-    """分页列出录音：任务/状态/关键词/地区筛选 + 排序（默认待审优先）。
+    """分页列出录音：任务/状态/关键词/地区筛选 + 排序（默认按ID正序）。
 
     keyword 模糊匹配发音人（昵称/设备ID/openid）与词条（内容/编号）。省管理员自动钳制为本省任务。
     """
@@ -95,7 +95,7 @@ def list_review_recordings(
         )
     if sort_by not in VALID_SORTS:
         raise HTTPException(
-            status_code=422, detail="sort_by 仅支持 pending_first/created/duration/reviewed"
+            status_code=422, detail="sort_by 仅支持 id/pending_first/created/duration/reviewed"
         )
 
     q = db.query(Recording).join(TaskBatch, Recording.task_id == TaskBatch.id)
@@ -127,6 +127,7 @@ def list_review_recordings(
 
     total = q.count()
     order_clauses = {
+        "id": [Recording.id.asc()],
         "pending_first": [
             case((Recording.status == "pending", 0), else_=1),
             Recording.created_at.desc(),

@@ -37,7 +37,7 @@ from .speakers import AGE_BRACKETS, GENDERS, _speaker_query
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
-VALID_SORTS = {"recording", "approved", "duration", "last_active", "created"}
+VALID_SORTS = {"id", "recording", "approved", "duration", "last_active", "created"}
 VALID_WORD_SORTS = {"reject", "approval", "recording"}
 
 
@@ -47,7 +47,7 @@ def _validate_dashboard_filters(gender, age_bracket, sort_by):
     if age_bracket is not None and age_bracket not in AGE_BRACKETS:
         raise HTTPException(status_code=422, detail="age_bracket 仅支持 under18/age18_30/age31_45/age46_60/over60")
     if sort_by not in VALID_SORTS:
-        raise HTTPException(status_code=422, detail="sort_by 仅支持 recording/approved/duration/last_active/created")
+        raise HTTPException(status_code=422, detail="sort_by 仅支持 id/recording/approved/duration/last_active/created")
 
 
 def _province_scope(db: Session, admin: AdminUser) -> str | None:
@@ -224,7 +224,7 @@ def dashboard_speakers(
     gender: str | None = None,
     age_bracket: str | None = None,
     team_code: str | None = None,
-    sort_by: str = "recording",
+    sort_by: str = "id",
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -300,7 +300,9 @@ def dashboard_speakers(
     def _ts(x):
         return x.timestamp() if x else 0
 
-    if sort_by == "approved":
+    if sort_by == "id":
+        rows.sort(key=lambda x: x["sid"])
+    elif sort_by == "approved":
         rows.sort(key=lambda x: (-x["approved"], -x["sid"]))
     elif sort_by == "duration":
         rows.sort(key=lambda x: (-x["duration"], -x["sid"]))

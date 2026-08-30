@@ -198,7 +198,7 @@ def list_speakers(
 
     total = q.count()
     speakers = (
-        q.order_by(Speaker.created_at.desc(), Speaker.id.desc())
+        q.order_by(Speaker.id.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

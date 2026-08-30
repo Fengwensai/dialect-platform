@@ -143,7 +143,7 @@ def list_tasks(
         q = q.filter(TaskBatch.team_code == _normalize(team_code))
     total = q.count()
     batches = (
-        q.order_by(TaskBatch.id.desc())
+        q.order_by(TaskBatch.id.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

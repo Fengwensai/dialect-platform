@@ -31,6 +31,7 @@
           <el-option v-for="p in provinceOptions" :key="p.code" :label="p.name" :value="p.code" />
         </el-select>
         <el-select v-model="sortBy" style="width: 130px">
+          <el-option label="按ID正序" value="id" />
           <el-option label="待审优先" value="pending_first" />
           <el-option label="按提交时间" value="created" />
           <el-option label="按音频时长" value="duration" />
@@ -393,14 +394,14 @@ const {
   filterKeyword,
   filterProvince,
   sortBy
-} = usePersistedFilters('review-filters-v1', {
+} = usePersistedFilters('review-filters-v2', {
   pageSize: 20,
   filterTaskId: null,
   filterStatus: 'pending',
   filterQuality: false,
   filterKeyword: '',
   filterProvince: '',
-  sortBy: 'pending_first'
+  sortBy: 'id'
 })
 const selection = ref([])
 const taskOptions = ref([])
@@ -477,7 +478,7 @@ function reset() {
   filterQuality.value = false
   filterKeyword.value = ''
   filterProvince.value = ''
-  sortBy.value = 'pending_first'
+  sortBy.value = 'id'
   page.value = 1
   load()
 }

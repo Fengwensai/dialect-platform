@@ -149,8 +149,14 @@ def main():
         check("sort=reviewed 最近审核优先 → r6(+40min)",
               first_id(sort_by="reviewed", status="approved") == r6.id,
               f"{first_id(sort_by='reviewed', status='approved')}")
-        check("sort=pending_first 待审优先 + 最新在前（默认）→ r4",
-              first_id(status="pending") == r4.id, f"{first_id(status='pending')}")
+        check("sort=id 按ID正序 → r1",
+              first_id(sort_by="id", status="pending") == r1.id,
+              f"{first_id(sort_by='id', status='pending')}")
+        check("默认按ID正序 → r1",
+              first_id(status="pending") == r1.id, f"{first_id(status='pending')}")
+        check("sort=pending_first 待审优先 + 最新在前 → r4",
+              first_id(sort_by="pending_first", status="pending") == r4.id,
+              f"{first_id(sort_by='pending_first', status='pending')}")
 
         # —— 省管理员列表钳制 ——
         r = lst(HB, status="pending")
