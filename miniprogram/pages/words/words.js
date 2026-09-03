@@ -4,7 +4,11 @@ const api = require('../../utils/api')
 const speaker = require('../../utils/speaker')
 const queue = require('../../utils/queue')
 
+const share = require('../../utils/share')
+
 Page({
+  // 转发（右上角「…」菜单）：整包原未实现 onShareAppMessage 导致置灰，挂统一默认转发
+  onShareAppMessage: share.onShareAppMessage,
   data: {
     taskId: 0,
     taskName: '',

@@ -18,7 +18,12 @@ const GENDER_CODES = ['male', 'female', 'other']
 const AGE_OPTIONS = ['<18', '18-30', '31-45', '46-60', '>60']
 const AGE_CODES = ['under18', 'age18_30', 'age31_45', 'age46_60', 'over60']
 
+const share = require('../../utils/share')
+
 Page({
+  // 转发 + 朋友圈（右上角「…」）：本页未登录可浏览，两者都开（朋友圈落地当前页安全）
+  onShareAppMessage: share.onShareAppMessage,
+  onShareTimeline: share.onShareTimeline,
   data: {
     loggedIn: false, // 是否已登录（先浏览后登录整改：未登录也可进本页浏览，登录由用户主动触发）
     nickname: '',

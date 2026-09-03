@@ -1,7 +1,12 @@
 // 首页（录音台·精简版）：欢迎语 + 领取任务/开始录音两大入口，其余功能在「我的」页
 const speaker = require('../../utils/speaker')
 
+const share = require('../../utils/share')
+
 Page({
+  // 转发 + 朋友圈（右上角「…」）：本页未登录可浏览，两者都开（朋友圈落地当前页安全）
+  onShareAppMessage: share.onShareAppMessage,
+  onShareTimeline: share.onShareTimeline,
   data: {
     loggedIn: false, // 是否已登录（微信违规整改：未登录也可浏览首页，登录由用户主动触发）
     speakerName: '',

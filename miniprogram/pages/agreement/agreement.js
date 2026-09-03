@@ -1,7 +1,12 @@
 // 协议详情页：按 type 展示三类协议最新版本全文（滚动文本，不用 web-view/rich-text）
 const speaker = require('../../utils/speaker')
 
+const share = require('../../utils/share')
+
 Page({
+  // 转发 + 朋友圈（右上角「…」）：本页未登录可浏览，两者都开（朋友圈落地当前页安全）
+  onShareAppMessage: share.onShareAppMessage,
+  onShareTimeline: share.onShareTimeline,
   data: {
     title: '',
     version: '',

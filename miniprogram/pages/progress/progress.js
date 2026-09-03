@@ -2,7 +2,11 @@
 // 数据来源：GET /api/mp/tasks（任务列表）+ GET /api/mp/recordings/progress?task_id=X（每任务进度）
 const api = require('../../utils/api')
 
+const share = require('../../utils/share')
+
 Page({
+  // 转发（右上角「…」菜单）：整包原未实现 onShareAppMessage 导致置灰，挂统一默认转发
+  onShareAppMessage: share.onShareAppMessage,
   data: {
     loading: true,
     error: '',

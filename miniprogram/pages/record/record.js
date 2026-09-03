@@ -26,7 +26,11 @@ function noteOf(w) {
   return w && w.status === 'rejected' && w.review_note ? w.review_note : ''
 }
 
+const share = require('../../utils/share')
+
 Page({
+  // 转发（右上角「…」菜单）：整包原未实现 onShareAppMessage 导致置灰，挂统一默认转发
+  onShareAppMessage: share.onShareAppMessage,
   data: {
     state: 'idle', // idle | recording | recorded
     pickMode: false, // true = 先选任务/词条（首页进入）；false = 带参直接录音（词条页/队列页）

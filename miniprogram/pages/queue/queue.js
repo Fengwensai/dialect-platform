@@ -10,7 +10,12 @@ const STATUS_TEXT = {
   claimLost: '未领取' // 领取制：词条未领取/已解绑，上传被拒，需先领取
 }
 
+const share = require('../../utils/share')
+
 Page({
+  // 转发 + 朋友圈（右上角「…」）：本页未登录可浏览，两者都开（朋友圈落地当前页安全）
+  onShareAppMessage: share.onShareAppMessage,
+  onShareTimeline: share.onShareTimeline,
   data: {
     items: [],
     pendingCount: 0,
