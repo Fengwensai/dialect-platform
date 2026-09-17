@@ -19,7 +19,7 @@
 |---|---|
 | 云服务器 | Linux（Ubuntu 22.04 / Debian 12 均可），建议 2 核 4G 起，建议**挂一块数据盘**。省钱可先不买：录音暂落系统盘 `/data`，后续迁 COS 或加盘即可（系统盘 40G 够撑到录音量起来） |
 | 域名 | 需**备案**（国内服务器强制，备案本身 1–3 周，建议先办） |
-| HTTPS 证书 | 免费 Let's Encrypt / 腾讯云免费证书均可，微信合法域名强制 https |
+| HTTPS 证书 | **本项目实际用 Let's Encrypt**（`deploy.sh` 自动签发 + `certbot.timer` 自动续期），微信合法域名强制 https。证书来源、续期链路与排障见 **`docs/cert-ops.md`** |
 | 腾讯云 COS 桶（**可选**） | **私有读写**，用于录音存储。**暂不用则跳过，录音自动落服务器本地磁盘**（`MEDIA_ROOT`）兜底，后续可无缝迁移 COS |
 | 微信小程序 | 已有 AppID/AppSecret；《用户隐私保护指引》已过审 |
 
@@ -166,6 +166,10 @@ sudo systemctl enable --now dialect-api
 > 只监听 127.0.0.1，由 Nginx 反代对外。多 worker 用 `--workers 2` 也行，无冲突。
 
 ### 4.5 Nginx + HTTPS（☑）
+> 下面是通用示例。**生产实际由 `deploy-bundle/deploy.sh` 生成**，证书走 Let's Encrypt，
+> 且 80 端口带 `/.well-known/acme-challenge/` 校验目录（续期依赖它）。
+> 证书的自动续期与排障见 **`docs/cert-ops.md`**。
+
 ```nginx
 server {
     listen 80;

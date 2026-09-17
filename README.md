@@ -328,4 +328,5 @@ python -c "import wave;w=wave.open('out.wav');print(w.getframerate(),w.getnchann
 - `docs/update-workflow.md` — **日常更新流程**（本地改完 → 同步后端/前端/小程序到线上，部署后每次改代码照着走）
 - `docs/backup.md` — **数据备份与还原**（每日自动备份范围、还原步骤、注意限制）
 - `docs/health-monitoring.md` — **健康监控**（health 端点 / 服务器自愈 / UptimeRobot 外部探活 / 备份异地副本建议）
+- `docs/cert-ops.md` — **HTTPS 证书运维**（Let's Encrypt 自动签发+续期 / certbot.timer / deploy hook / 排障；阿里云证书是未部署的，短信可忽略）
 - `docs/launch-check.md` — 小程序上线前真机手动验证清单
