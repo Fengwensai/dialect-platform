@@ -92,6 +92,44 @@ systemctl list-timers --all | grep certbot
 > `/etc/cron.d/certbot` 里也有一条 cron，但它有 systemd 守卫（`! -d /run/systemd/system`），
 > 在 systemd 系统上不会重复执行。以 `certbot.timer` 为准。
 
+### 为什么"免费 + 全自动"仍然需要到期提醒？
+
+这是最容易被误解的一点：**免费说的是价格，90 天说的是有效期，两者无关。**
+LE 每张证书只有 90 天寿命（CA/Browser Forum 行业规定，短有效期可限制私钥泄露的危害窗口），
+到期即作废，浏览器和微信直接拒绝——**哪怕它是免费的**。
+
+真正让"不用管"成立的是**自动化**，不是免费：
+
+| | 含义 |
+|---|---|
+| 免费 | 续期不要钱 |
+| 90 天有效期 | 每 90 天必须换一张新的 |
+| 自动续期 | 让"换证"这件事你察觉不到 |
+| **到期提醒** | 监控**自动化本身有没有失效**——不是催你交钱 |
+
+**而自动化的失效恰恰是无声的。** §4 那个缺口就是实证：定时器在跑、续期命令成功、
+磁盘上新证书就位，唯独线上实际在用的还是旧证书——只翻 certbot 日志完全看不出异常。
+
+自动化覆盖不了的情况：服务器重装/迁移（timer 丢失）、DNS 变更或 80 端口被占
+（域名验证失败）、某次排查中定时器被误禁用、磁盘满，**以及规则变更**
+（CA/B 一直在缩短有效期上限，见 §1 的 90 天现状）。
+
+### ⚠️ 现在**没有任何**自动到期提醒（2026-09-17 查实）
+
+三个常见的"保险"全部不成立，别指望它们：
+
+| 候选保险 | 实际情况 |
+|---|---|
+| Let's Encrypt 到期提醒邮件 | ❌ **已停止服务**。公告 2025-01-22，**支持终止 2025-06-04**；LE 同时**删除了所有已存储的 ACME 邮箱**（理由：自动化已普及、存百万邮箱与隐私冲突、每年数万美元成本）。这也是 `regr.json` 里 `"body": {}` 为空的原因 |
+| ACME 账户邮箱 `admin@qlzby.com` | ❌ **信箱不存在**。`qlzby.com` **无任何 MX 记录**，按 RFC 退回 A 记录 → `182.92.9.204` → 该机无邮件服务 → 必然退信。该地址是 `deploy.sh` 里 `-m "admin@$DOMAIN"` 拼出来的，从未真正创建 |
+| UptimeRobot 免费档 SSL 提醒 | ❌ **付费功能**（Solo $8/月起）。免费档不检查证书 |
+
+> **UptimeRobot 免费档仍能提供 T-0 告警**：证书真过期时 TLS 握手失败 → 监控变 DOWN → 发邮件。
+> 但它没有提前量——那一刻已经是全站宕机。
+
+**当前真正在工作的自动机制只有一个：`certbot.timer` + §4 的 deploy hook。**
+它一旦失灵，不会有任何东西通知你。因此**人工兜底不可省略**（见 §6）。
+
 ---
 
 ## 4. deploy hook（2026-09-17 补装）
@@ -99,7 +137,7 @@ systemctl list-timers --all | grep certbot
 **背景**：首次排查发现续期链路缺了 reload 这一步——
 `renewal-hooks/{pre,deploy,post}` 三个目录全空、`cli.ini` 无 hook、
 `certbot.service` 无 `ExecStartPost`、renewal 用 `authenticator=webroot` 无 installer
-（certbot 根本不碰 nginx）。若不修，**通知 2026-11-12 全站硬失败，且没有任何预警**。
+（certbot 根本不碰 nginx）。若不修，**2026-11-12 会全站硬失败，且没有任何预警**。
 
 **修复**（已安装）：
 
@@ -156,10 +194,12 @@ grep -a "deploy hook" /var/log/letsencrypt/letsencrypt.log | tail -3
 - [ ] `systemctl status certbot.timer` 为 active (waiting)
 - [ ] `sudo journalctl -u certbot --since "-7 days"` 无续期失败
 - [ ] `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx` 存在且可执行
-- [ ] **UptimeRobot 的 SSL 到期提醒已开启**（监控器 `api.qlzby.com/api/health` → SSL expiry reminder）
-      ——这是唯一的外部预警，LE 不发短信
-- [ ] **ACME 账户邮箱 `admin@qlzby.com` 可达**（LE 的到期提醒邮件发往该地址）
+- [ ] **人工复查**：每 90 天一次（**没有自动提醒可用，见 §3 末**，这是唯一的提前量来源）
 - [ ] 阿里云控制台的证书短信可忽略，无需处理
+
+> 不要指望这些：LE 到期提醒邮件（2025-06 已停）、`admin@qlzby.com`
+>（域名无 MX，信箱不存在）、UptimeRobot 免费档 SSL 提醒（付费功能）。
+> UptimeRobot 免费档只能在**证书已过期、站点已宕**时告警，无提前量。
 
 **下次复查节点：2026-10-13 前后**（首次真实自动续期）
 
@@ -169,6 +209,11 @@ sudo journalctl -u certbot --since "2026-10-12" | grep -iE "renew|hook|congrat"
 # 同时确认 openssl 实测的 notAfter 已推到 2027-01 之后
 ```
 
+**再下一次：约 2026-12-12**（第二次续期）。目前没有自动提醒，
+是否额外加提醒手段由自己决定——可选方案：手机日历按 90 天循环、钉钉/飞书机器人 webhook
+（可复用 `dialect-monitor.timer`）、Red Sift Certificates Lite（免费）或 UptimeRobot Solo（付费）。
+**不加也可以**，代价是故障只能靠"小程序打不开"这类现象被动发现。
+
 ---
 
 ## 7. 变更记录
@@ -177,6 +222,7 @@ sudo journalctl -u certbot --since "2026-10-12" | grep -iE "renew|hook|congrat"
 |---|---|
 | 2026-08-14 | 首次部署，`deploy.sh` 自动签发 LE 证书并启用 `certbot.timer` |
 | 2026-09-17 | 排查发现续期后不 reload nginx 的静默故障；补装 `reload-nginx` deploy hook 并验证接线 |
+| 2026-09-17 | 查实**三个候选提醒机制全部不成立**（LE 邮件 2025-06 已停、`admin@qlzby.com` 无 MX、UptimeRobot 免费档 SSL 提醒属付费）；§3 末与 §6 据此改写，确认**当前无任何自动到期提醒** |
 
 > 相关：`docs/deploy-guide.md` §4.5（nginx + HTTPS）、`docs/health-monitoring.md`（UptimeRobot 探活）。
 > 注意 `deploy-bundle/` 被 `.gitignore` 排除，**`deploy.sh` 不在版本控制内**——
