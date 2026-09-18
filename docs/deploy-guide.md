@@ -220,6 +220,15 @@ server {
 ```
 （若管理后台与 API 共用同一域名，只需把 `/api/`、`/media/`、静态托管并进同一个 server 块。）
 
+> **压缩开关在全局配置里，不在这几个 server 块里。** `gzip on;` 与 `gzip_types` 都写在
+> `/etc/nginx/nginx.conf`，而 nginx 的 `gzip_types` **默认值只含 `text/html`**——
+> 只写了 `gzip on;` 而不写 `gzip_types`，JS / CSS / JSON 一个字节都不会压，**且不报任何错**。
+> 2026-09-18 排查 crm 平台首屏 8~9 秒时才发现两边都是这个状态，已打开：
+> 后台那个 1.2 MB 的 bundle 压到约 400 KB。判断有没有真的生效要看响应头
+> **有没有 `Content-Encoding: gzip`**，不是看 `gzip on` 在不在。
+>
+> ⚠️ 这份 nginx.conf 是**与 crm 工作量统计平台共用的**（同机部署），改它两个平台一起受影响。
+
 ---
 
 ## 5. 部署后自测（☑ 上线前必须）
