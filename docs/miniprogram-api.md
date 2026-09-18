@@ -127,7 +127,7 @@ Content-Type: application/json
 
 ### ✅ 协议确认（阶段九）
 
-**三类协议**（后台「协议管理」页可编辑，`docs/api.md` §11）：`user_agreement` 用户协议 / `privacy_policy` 隐私政策 / `voice_auth` 声音单独授权协议。稳定 type 字符串、最新版本由服务端统一管理；发布新版本（version 递增）后所有发音人需重新同意。
+**三类协议**（后台「协议管理」页可编辑，`docs/api.md` §12）：`user_agreement` 用户协议 / `privacy_policy` 隐私政策 / `voice_auth` 声音单独授权协议。稳定 type 字符串、最新版本由服务端统一管理；发布新版本（version 递增）后所有发音人需重新同意。
 
 #### 获取三类协议最新版本 `GET /api/mp/agreements`（公开，无需登录）
 

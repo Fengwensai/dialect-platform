@@ -938,7 +938,7 @@ JWT（HS256）内包含：
 
 **权限**：超管管理全国；省管理员仅管理本省团队码（越省 `403`）。**只能改名**（改区域/改码需删除后重建，避免已绑定发音人失联）。
 
-### 9.1 团队码列表
+### 10.1 团队码列表
 
 `GET /api/team-codes`
 
@@ -960,7 +960,7 @@ JWT（HS256）内包含：
 ]
 ```
 
-### 9.2 创建团队码
+### 10.2 创建团队码
 
 `POST /api/team-codes`
 
@@ -980,13 +980,13 @@ JWT（HS256）内包含：
 - `422 {"detail": "团队码不能为空"}` / `422 {"detail": "province_code 无效..."}` / `422 {"detail": "city_code 无效..."}`
 - `403 {"detail": "省管理员只能管理本省的团队码"}`
 
-### 9.3 改名
+### 10.3 改名
 
 `PATCH /api/team-codes/{team_id}`
 
 **请求体**：`{ "name": "石家庄团队（新）" }`（非空，`422` 否则）。**仅允许改名**。
 
-### 9.4 删除
+### 10.4 删除
 
 `DELETE /api/team-codes/{team_id}`
 
@@ -1011,7 +1011,7 @@ JWT（HS256）内包含：
 
 **版本语义（阶段九）**：三类协议（`user_agreement` 用户协议 / `privacy_policy` 隐私政策 / `voice_auth` 声音单独授权协议）存数据库，每行 = 某协议的一个**不可变版本**。编辑 = 发布新版本（`version` 自增），旧版本不可修改；发布新版本后所有发音人需**重新阅读并同意**方可继续使用小程序（后端 403 强制拦截，见 `docs/miniprogram-api.md` §协议确认）。
 
-### 11.1 三类协议最新版本
+### 12.1 三类协议最新版本
 
 `GET /api/agreements`
 
@@ -1031,7 +1031,7 @@ JWT（HS256）内包含：
 ]
 ```
 
-### 11.2 某类协议历史版本
+### 12.2 某类协议历史版本
 
 `GET /api/agreements/history?type=user_agreement`
 
@@ -1039,7 +1039,7 @@ JWT（HS256）内包含：
 
 **错误**：`422 {"detail": "type 不合法，须为 user_agreement / privacy_policy / voice_auth"}`
 
-### 11.3 发布协议新版本
+### 12.3 发布协议新版本
 
 `POST /api/agreements`
 
