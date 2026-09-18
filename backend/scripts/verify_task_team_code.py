@@ -82,9 +82,12 @@ r = api("POST", "/api/tasks", token=SUPER, body={
     "team_code": TEAM_SJZ, "required_audio_count": 30, "word_ids": [],
 })
 ok = r.status_code == 200
-extra = j(r) if not ok else f"team_code={j(r).get('team_code')} prov={j(r).get('province_code')} city={j(r).get('city_code')}"
+extra = j(r) if not ok else f"team_code={j(r).get('team_code')} prov={j(r).get('province_code')} city={j(r).get('city_code')} district={j(r).get('district_code')}"
 expect(ok and j(r).get("team_code") == TEAM_SJZ and j(r).get("city_code") == "1301",
        "创建任务关联团队码并带出地区", str(r.status_code) + " " + str(extra))
+# HB-SJZ 是历史市级团队（district 为空）→ 任务区县为空 = 按全市投放，须原样带出
+expect(ok and j(r).get("district_code") is None,
+       "关联市级团队(区县为空)任务区县为空", str(r.status_code) + " " + str(extra))
 task_a = r.json().get("id") if ok else None
 
 # 3) 关联团队但地区与团队不一致 → 422
@@ -129,6 +132,9 @@ ok = r.status_code == 200
 extra = j(r) if not ok else f"team={j(r).get('team_code')} prov={j(r).get('province_code')} city={j(r).get('city_code')} district={j(r).get('district_code')}"
 expect(ok and j(r).get("team_code") == PREFIX + "SY" and j(r).get("province_code") == "21",
        "编辑任务改绑团队后地区带出", str(r.status_code) + " " + str(extra))
+# 沈阳团队是区县级（21/2101/210102）→ 改绑后区县须一并带出，不得清空
+expect(ok and j(r).get("city_code") == "2101" and j(r).get("district_code") == "210102",
+       "改绑区县级团队后任务区县带出", str(r.status_code) + " " + str(extra))
 
 # 9) 解除关联：保留地区，team_code 清空
 r = api("PATCH", f"/api/tasks/{task_a}", token=SUPER, body={"team_code": None})
@@ -136,6 +142,7 @@ ok = r.status_code == 200
 extra = j(r) if not ok else f"team={j(r).get('team_code')} prov={j(r).get('province_code')}"
 expect(ok and j(r).get("team_code") is None and j(r).get("province_code") == "21",
        "编辑任务解除团队关联保留地区", str(r.status_code) + " " + str(extra))
+expect(ok and j(r).get("district_code") == "210102", "解除关联后区县保留", str(r.status_code) + " " + str(extra))
 
 # 10) 编辑已发布任务改绑 → 400（仅草稿可编辑；task_a 仍是草稿，跳过）
 r = api("PATCH", f"/api/tasks/{task_d}", token=HB, body={"team_code": PREFIX + "SY"})

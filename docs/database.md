@@ -94,7 +94,7 @@ speaker_agreements ──────────┘
 | `province_code` | varchar(16) | 投放省份 adcode（必填） |
 | `city_code` | varchar(16), 可空 | 投放地市 adcode（空 = 全省各市） |
 | `district_code` | varchar(16), 可空 | 投放区县 adcode（空 = 全市各区县） |
-| `team_code` | varchar(32), 索引, 可空 | **关联的团队码**（阶段八，对应 `team_codes.code`）。创建/改绑时**投放区划由团队码带出**（省+市随团队属地覆盖，`district_code` 强制清空 → 任务按全市投放）；仅归属追溯/筛选，不参与可见性判定（可见性由任务自身的省/市/区县决定） |
+| `team_code` | varchar(32), 索引, 可空 | **关联的团队码**（阶段八，对应 `team_codes.code`）。创建/改绑时**投放区划由团队码带出**（省+市+区县随团队属地覆盖；历史市级团队码区县为空 → 按全市投放）；仅归属追溯/筛选，不参与可见性判定（可见性由任务自身的省/市/区县决定） |
 | `required_audio_count` | int | 必录音频数（每个发音人需录的条数，如 30） |
 | `claim_limit` | int | **每人领取上限**（阶段十一，默认 10）：单发音人同时最多领取词条数。领取时 `can_take = min(剩余可领, claim_limit - 已领)`；存量回填可超限（祖父化），多余可后台解绑 |
 | `status` | varchar(20) | 状态：`draft` 草稿 / `published` 已发布 / `closed` 已关闭 |

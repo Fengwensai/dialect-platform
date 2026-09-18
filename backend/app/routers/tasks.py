@@ -84,14 +84,18 @@ def create_task(
     district_code = body.district_code or None
 
     if team_code:
-        # 关联团队：地区由团队码带出，传入的省/市必须与团队一致（否则 422）
+        # 关联团队：地区由团队码带出（含区县），传入的省/市必须与团队一致（否则 422）
         tc = _resolve_team(db, admin, team_code)
         if province_code != tc.province_code or city_code != tc.city_code:
             raise HTTPException(
                 status_code=422,
                 detail="任务地区与团队码地区不一致，选择团队后地区由团队码自动带出",
             )
-        province_code, city_code, district_code = tc.province_code, tc.city_code, None
+        province_code, city_code, district_code = (
+            tc.province_code,
+            tc.city_code,
+            tc.district_code,
+        )
     elif admin.role == "province_admin" and province_code != admin.province_code:
         raise HTTPException(status_code=403, detail="只能给自己管辖省份创建任务")
 
@@ -502,11 +506,11 @@ def update_task(
     if "team_code" in data:
         team_code = _normalize(data["team_code"]) if data["team_code"] else None
         if team_code:
-            # 改绑团队：地区由团队码带出并覆盖，district 清空（团队仅到市一级）
+            # 改绑团队：地区由团队码带出并覆盖（含区县；历史市级团队码 district 为空）
             tc = _resolve_team(db, admin, team_code)
             batch.province_code = tc.province_code
             batch.city_code = tc.city_code
-            batch.district_code = None
+            batch.district_code = tc.district_code
             batch.team_code = tc.code
         else:
             # 解除关联：保留当前地区，仅去掉团队码归属
