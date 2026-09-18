@@ -17,7 +17,7 @@ excel_import_logs                           │ 1 关联 N（每词一条录音�
                                            ▼
                                         recordings ──N 关联 1── speakers
                                                     ▲
-                            team_codes ──N 绑定 1───┘（团队码→省+市，发音人凭码绑定）
+                            team_codes ──N 绑定 1───┘（团队码→省+市+区县，发音人凭码绑定）
 regions  ←──── word_library / task_batches / admin_users / speakers / team_codes 的 *_code 引用其 code
 
 任务词条领取（阶段十一）：task_claims ──（task_id → task_batches，word_id → word_library，speaker_id → speakers）
@@ -94,7 +94,7 @@ speaker_agreements ──────────┘
 | `province_code` | varchar(16) | 投放省份 adcode（必填） |
 | `city_code` | varchar(16), 可空 | 投放地市 adcode（空 = 全省各市） |
 | `district_code` | varchar(16), 可空 | 投放区县 adcode（空 = 全市各区县） |
-| `team_code` | varchar(32), 索引, 可空 | **关联的团队码**（阶段八，对应 `team_codes.code`）。创建/改绑时**投放区划由团队码带出**（省+市随团队属地覆盖，district 清空）；仅归属追溯/筛选，**小程序端隔离仍按省+市** |
+| `team_code` | varchar(32), 索引, 可空 | **关联的团队码**（阶段八，对应 `team_codes.code`）。创建/改绑时**投放区划由团队码带出**（省+市随团队属地覆盖，`district_code` 强制清空 → 任务按全市投放）；仅归属追溯/筛选，不参与可见性判定（可见性由任务自身的省/市/区县决定） |
 | `required_audio_count` | int | 必录音频数（每个发音人需录的条数，如 30） |
 | `claim_limit` | int | **每人领取上限**（阶段十一，默认 10）：单发音人同时最多领取词条数。领取时 `can_take = min(剩余可领, claim_limit - 已领)`；存量回填可超限（祖父化），多余可后台解绑 |
 | `status` | varchar(20) | 状态：`draft` 草稿 / `published` 已发布 / `closed` 已关闭 |
@@ -148,7 +148,8 @@ speaker_agreements ──────────┘
 | `nickname` | varchar(64) | 昵称；未提供时后端默认 `发音人+device_id 末4位` |
 | `avatar_url` | varchar(255), 可空 | 头像 |
 | `province_code` | varchar(16), 索引, 可空 | **属地省份 adcode（阶段八：唯一来源是团队码绑定）**。绑定后锁定，后台纠错才可改 |
-| `city_code` | varchar(16), 索引, 可空 | **属地地市 adcode**，与 `province_code` 构成省+市隔离粒度 |
+| `city_code` | varchar(16), 索引, 可空 | **属地地市 adcode** |
+| `district_code` | varchar(16), 索引, 可空 | **属地区县 adcode**。三级共同构成隔离粒度；历史数据/市级团队绑定后为空，此时按全市生效 |
 | `team_code` | varchar(32), 索引, 可空 | **绑定的团队码**（对应 `team_codes.code`）。后台纠错改属地后自动清空，发音人可重新绑定 |
 | `gender` | varchar(10), 可空 | 发音人画像：`male/female/other`。登录/上传附带（空不覆盖）；`POST /api/mp/profile` 可自助修改 |
 | `age_bracket` | varchar(20), 可空 | 年龄段画像：`under18/age18_30/age31_45/age46_60/over60`。采集规则同 gender |
@@ -183,7 +184,7 @@ speaker_agreements ──────────┘
 
 ## 9. team_codes — 团队码表（阶段八）
 
-**作用**：**一码一区（省+市）**。每个团队码唯一绑定一个省市；发音人在小程序端输入团队码即绑定该省市属地（`POST /api/mp/team/join`），随后只能看到/录制该地区任务，实现严格的省+市隔离。管理后台「团队管理」页维护。
+**作用**：**一码一区县（省+市+区）**。每个团队码唯一绑定一个省+市+区县（**三级必选**）；发音人在小程序端输入团队码即绑定该省市区县属地（`POST /api/mp/team/join`），随后只能看到/录制**本区县**任务（本市未限定区县的任务亦可见），实现严格的属地隔离。历史团队码 `district_code` 为空，视为**市级团队**（全市可见）。管理后台「团队管理」页维护。
 
 | 字段 | 类型 | 含义 |
 |---|---|---|
@@ -192,12 +193,13 @@ speaker_agreements ──────────┘
 | `name` | varchar(128) | 团队名（如 `石家庄团队`；可后台改名） |
 | `province_code` | varchar(16), 索引 | 绑定省份 adcode |
 | `city_code` | varchar(16), 索引 | 绑定地市 adcode |
+| `district_code` | varchar(16), 索引, 可空 | 绑定区县 adcode（历史数据为空 = 市级团队，全市可见） |
 | `created_by` | int, 可空 | 创建的管理员 id |
 | `created_at` | timestamptz | 创建时间 |
 
 **约束**：
 - `UNIQUE(code)`：团队码不可重复。
-- `UNIQUE(province_code, city_code)`：**一码一区**——同一省市只能有一个团队码，防止一个地区出现多个码导致隔离混乱。
+- `UNIQUE(province_code, city_code, district_code)`（约束名 `uq_team_code_region`）：**一码一区县**——同一省市区县只能有一个团队码，防止一个地区出现多个码导致隔离混乱。
 
 **操作规则**：
 - 只能**改名**；改区域/改码需删除后重建（避免已绑定发音人「失联」——属地与码解绑）。

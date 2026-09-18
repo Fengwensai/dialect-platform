@@ -2,9 +2,9 @@
 
 > 状态说明：阶段一（管理后台）+ 阶段二（小程序）+ 阶段三（录音审核）+ 阶段八（团队绑定属地隔离）+ 阶段九（三份协议登录确认）**已全部实现**——
 >
-> - **✅ 已实现**：登录 / **团队绑定（属地=省+市）** / 领任务 / 词条列表 / 录音上传 / 进度（任务内 + 总体）/ 省市区列表 / **头像上传（跨设备持久）** / **录音审核（试听·通过·驳回）** / **数据集导出（approved 录音批量导出）** / **我的录音时长统计与导出（`/api/mp/me/durations` + `/api/mp/me/export`）** / **三份协议（用户协议·隐私政策·声音单独授权协议）登录三勾选 + 版本升级重新确认**。
+> - **✅ 已实现**：登录 / **团队绑定（属地=省+市+区县）** / 领任务 / 词条列表 / 录音上传 / 进度（任务内 + 总体）/ 省市区列表 / **头像上传（跨设备持久）** / **录音审核（试听·通过·驳回）** / **数据集导出（approved 录音批量导出）** / **我的录音时长统计与导出（`/api/mp/me/durations` + `/api/mp/me/export`）** / **三份协议（用户协议·隐私政策·声音单独授权协议）登录三勾选 + 版本升级重新确认**。
 > - 已打通**「登录 → 协议确认 → 团队绑定 → 领任务 → 录 → 传 → 库 → 后台审核 → 进度 → 数据集导出」完整闭环**，真机端到端验证。
-> - **阶段八 属地隔离（省+市，强制）**：发音人凭**团队码**（`POST /api/mp/team/join`）绑定省+市属地，绑定后只能看到/录制**本地区**任务——服务端按 `province_code+city_code` 严格过滤任务列表、词条、上传，客户端无法绕过；未绑定团队的任务列表为空、无法上传。
+> - **阶段八 属地隔离（省+市+区县，强制）**：发音人凭**团队码**（`POST /api/mp/team/join`）绑定省+市+区县属地，绑定后只能看到/录制**本区县**任务（本市未限定区县的任务亦可见）——服务端按 `province_code+city_code`，并叠加 `district_code`（任务该字段为空则不限区县）严格过滤任务列表、词条、上传，客户端无法绕过；未绑定团队的任务列表为空、无法上传。
 > - **阶段九 协议确认（后端强制）**：登录仍发 token，但未全部同意最新版**用户协议 + 隐私政策 + 声音单独授权协议**前，所有功能接口（任务/词条/上传/进度/资料等）返回 `403 请先同意最新版用户协议、隐私政策与声音授权协议`；后台发布新版本后需**重新阅读并同意**方可继续（详见 §协议确认）。
 
 ---
@@ -21,7 +21,7 @@
 
 **小程序用户（发音人）与后台管理员是两套身份体系**：管理员登录用 `username+password`；小程序用户用微信 `wx.login` 的 code 换 openid（`POST /api/mp/login`）。登录时自动把 `device_id` 与 openid 绑定到同一 speaker 行，避免与历史 `device_id` 上传分叉。
 
-**属地（省+市）与登录解耦**：登录/上传不再回填省份，属地**唯一来源是团队码绑定**（§2.1）。未绑定 = 任务列表为空 + 无法上传。
+**属地（省+市+区县）与登录解耦**：登录/上传不再回填省份，属地**唯一来源是团队码绑定**（§2.1）。未绑定 = 任务列表为空 + 无法上传。
 
 ---
 
@@ -44,7 +44,7 @@ Content-Type: application/json
 }
 ```
 
-> 注意：**无 `province_code` 字段**——属地（省+市）由团队码绑定决定（§2.1），登录不接收、不回填。
+> 注意：**无 `province_code` 字段**——属地（省+市+区县）由团队码绑定决定（§2.1），登录不接收、不回填。
 
 **响应 200**：
 
@@ -81,7 +81,7 @@ Content-Type: application/json
 
 ### ✅ 加入团队（绑定属地） `POST /api/mp/team/join`（已实现，需 Bearer）
 
-发音人凭**团队码**绑定省+市属地（阶段八核心入口）。团队码由后台「团队管理」页创建，**一码一区**（每个码唯一对应一个省+市）。绑定后属地锁定：
+发音人凭**团队码**绑定省+市+区县属地（阶段八核心入口）。团队码由后台「团队管理」页创建，**一码一区县**（每个码唯一对应一个省+市+区县）。绑定后属地锁定：
 
 ```
 POST /api/mp/team/join
@@ -92,7 +92,7 @@ Content-Type: application/json
 ```
 
 - 团队码不区分大小写（后端统一转大写匹配）；未找到 → `404 {"detail": "团队码不存在或已停用"}`。
-- 绑定成功 → **响应 200**：更新后的 `speaker`（`province_code`/`city_code`/`team_code` 均被写入，如 `13`/`1301`/`HB-SJZ`）。
+- 绑定成功 → **响应 200**：更新后的 `speaker`（`province_code`/`city_code`/`district_code`/`team_code` 均由团队码带入写入；历史**市级团队**码的 `district_code` 为 `null`，此时属地按全市生效）。
 - **绑定后不可更换**：再次 join → `400 {"detail": "已绑定团队（HB-SJZ），无法更换；如需修改请联系管理员"}`（后台管理员可「发音人属地纠错」改属地，改后 `team_code` 自动清空，发音人可重新绑定）。
 - 未登录 → 401。
 
@@ -191,13 +191,13 @@ Content-Type: application/json
 
 ### ✅ 我的可用任务 `GET /api/mp/tasks`（已实现）
 
-登录后拉取**本地区（团队码绑定的省+市）**已发布任务（需 `Authorization: Bearer <token>`）。
+登录后拉取**本地区（团队码绑定的省+市+区县）**已发布任务（需 `Authorization: Bearer <token>`）。
 
 ```
 GET /api/mp/tasks?page=1&page_size=20
 ```
 
-> **阶段八隔离（服务端强制）**：任务列表只返回 `province_code == 发音人属地省` **且** `city_code == 属地市` 的已发布任务。**不再接受任何客户端区域参数**（`province_code`/`city_code`/`district_code` 查询参数已移除）；未绑定团队 → `{"total": 0, "items": []}`。
+> **阶段八隔离（服务端强制）**：任务列表只返回 `province_code == 发音人属地省` **且** `city_code == 属地市`，**且**（任务 `district_code` 为空 **或** `== 发音人属地区县`）的已发布任务。**不再接受任何客户端区域参数**（`province_code`/`city_code`/`district_code` 查询参数已移除）；未绑定团队 → `{"total": 0, "items": []}`。
 
 **响应 200**：
 
@@ -281,7 +281,7 @@ GET /api/mp/tasks/1/words
 ```
 
 - 仅 `published` 任务可拉取（草稿返回 `400 任务未发布`）。
-- **阶段八隔离**：未绑定团队 → `400 请先加入团队（输入团队码）后再操作`；任务不属于发音人属地（省+市任一不符）→ `403 该任务不属于你所在地区`（防止通过任务 ID 越权查看/录制）。
+- **阶段八隔离**：未绑定团队 → `400 请先加入团队（输入团队码）后再操作`；任务不属于发音人属地（省/市/区县逐级不符，任务未限定区县时只看省+市）→ `403 该任务不属于你所在地区`（防止通过任务 ID 越权查看/录制）。
 - **仅返回「我已领取」且启用（`active`）的词条**：后台可将词条置为 `disabled` 下架（如词条有问题需修正），下架后该词条从任务列表消失、不可再录；已采集录音保留。后台开关接口见 `docs/api.md` §4.2。
 - `claim` 为领取统计（词条池视角），同 `GET /api/mp/tasks/{task_id}/claims`。
 - `status` 为当前发音人该词条最新录音的审核状态：`pending`（待审核）/ `approved`（已通过）/ `rejected`（需重录）；未录为 `null`。小程序据此渲染：
@@ -400,7 +400,7 @@ file:           <音频文件>
 
 - `task_id` 对应任务必须存在（否则 `404 任务不存在`）且已发布（否则 `400 任务未发布`）。
 - `word_id` 必须属于该任务（否则 `400 词条不属于该任务`）。
-- **阶段八隔离**：未绑定团队 → `400 请先加入团队（输入团队码）后再操作`；任务非本团队属地（省+市任一不符）→ `403 只能上传本团队所属地区的任务`。**本地区任务才能上传**。
+- **阶段八隔离**：未绑定团队 → `400 请先加入团队（输入团队码）后再操作`；任务非本团队属地（省/市/区县逐级不符，任务未限定区县时只看省+市）→ `403 只能上传本团队所属地区的任务`。**本地区任务才能上传**。
 - **阶段十一领取守卫**：词条须为**本人已领取**（`task_claims` 有记录）否则 `403 该词条未被你领取，请先在任务页领取`。该 403 在属地校验之后、上传限流之前，**不消耗限流配额**（小程序本地队列会把此类项标记为「未领取」而非普通错误重试）。
 - 音频扩展名限 `.wav` / `.mp3` / `.m4a` / `.aac`；空文件返回 `400 录音文件为空`。
 - 同一 `(task_id, word_id, speaker_id)` 已存在录音时：**覆盖**旧录音（删除旧文件、保持 recording id、状态重设为 `pending`），响应 `overwritten: true`。
@@ -723,7 +723,7 @@ GET /api/dashboard/words?page=1&page_size=20&sort_by=reject
 
 | 表 | 字段要点 |
 |---|---|
-| `speakers`（发音人）✅ | id、device_id(unique,index)、openid(unique,index)、nickname、avatar_url、province_code(index)、**city_code(index)**、**team_code(index)**（阶段八：属地省+市 + 绑定团队码）、**gender**(male/female/other)、**age_bracket**(under18/age18_30/age31_45/age46_60/over60)、created_at |
+| `speakers`（发音人）✅ | id、device_id(unique,index)、openid(unique,index)、nickname、avatar_url、province_code(index)、**city_code(index)**、**district_code(index)**、**team_code(index)**（阶段八：属地省+市+区县 + 绑定团队码）、**gender**(male/female/other)、**age_bracket**(under18/age18_30/age31_45/age46_60/over60)、created_at |
 | `recordings`（录音）✅ | id、task_id(index)、word_id(index)、speaker_id(index)、audio_url、audio_duration、file_size、status(`pending`/`approved`/`rejected`)、review_note、reviewed_by、created_at、reviewed_at、**mandarin_transcript**（普通话转写）、**dialect_transcript**（方言转写） |
 | `team_codes`（团队码）✅ | id、code(unique,index,大写)、name、province_code(index)、city_code(index)、created_by、created_at。约束：`UNIQUE(code)`、`UNIQUE(province_code,city_code)`（**一码一区**） |
 | `agreements`（协议版本）✅ | id、type(index)、title、version、content、updated_by、updated_at。约束：`UNIQUE(type, version)`——每行=某协议的一个**不可变版本** |
@@ -745,6 +745,6 @@ GET /api/dashboard/words?page=1&page_size=20&sort_by=reject
 8. ✅ 发音人画像采集：登录 + 上传附带 `gender`/`age_bracket`（空不覆盖）+ `POST /api/mp/profile` 自助修改（空串清空）。`POST /api/mp/profile` 同时支持 `nickname`/`avatar_url` 更新（「我的」页头像昵称编辑）。
 8b. ✅ **我的录音时长导出**：「我的 → 导出录音时长」`GET /api/mp/me/durations`（统计预览）+ `GET /api/mp/me/export`（CSV 明细）→ `wx.downloadFile` 下载 → `wx.saveFile` 存本地 → `wx.shareFileMessage` 分享到文件传输助手/好友。任务进度条以「需录 N 条」为目标（`pages/tasks`）。
 9. ✅ **强制登录门禁**：小程序底部 TabBar = 首页 / 我的；登录页为入口（`pages/login/login`），`wx.login` 静默换 token → 登录后「完善资料（可选）」步骤（`open-type="chooseAvatar"` + `type="nickname"` 输入框 + **性别/年龄段选择器**，保存调 `POST /api/mp/profile` 一并落库，均可跳过）→ `switchTab` 进首页；「我的」页含头像昵称编辑、性别/年龄段画像、退出登录（`clearToken` → 回登录页）。首页仅保留录音台（审核进度 / 队列统计 / 开始录音 / 领任务 / 一键上传）。
-9b. ✅ **团队绑定门禁（阶段八）**：未绑定发音人在登录完成步骤**必填团队码**（`POST /api/mp/team/join` 一并绑定）；已绑定直接进首页。首页顶部「未加入团队」提示条 + 绑定弹窗；任务/画像/我的页属地**只读**展示「省·市」（`utils/region.js`）。服务端强制：任务列表 / 词条 / 上传均按属地省+市过滤（未绑定=空列表、不能上传；跨区 403）。
+9b. ✅ **团队绑定门禁（阶段八）**：未绑定发音人在登录完成步骤**必填团队码**（`POST /api/mp/team/join` 一并绑定）；已绑定直接进首页。首页顶部「未加入团队」提示条 + 绑定弹窗；任务/画像/我的页属地**只读**展示「省·市」（`utils/region.js` 仅两级，**UI 不展示区县**，但服务端隔离已含区县）。服务端强制：任务列表 / 词条 / 上传均按属地省+市+区县过滤（未绑定=空列表、不能上传；跨区 403）。
 9c. ✅ **协议三勾选 + 强制确认（阶段九）**：登录页三行 checkbox（用户协议 / 隐私政策 / 声音单独授权协议）**全勾才能点登录**；登录后 `pending_agreements` 非空弹确认窗，「同意并继续」调 `POST /api/mp/agreements/accept`；协议详情页 `pages/agreement`（scroll-view 滚动全文）。后台改协议升版本 → 发音人下次登录只弹被改的那份（冷启动走 `GET /api/mp/agreements/pending`）。后端 403 强制拦截不可绕过。
 10. 联调闭环：开发者工具/真机打开 → 登录页微信登录（**先三勾选协议**）→ 协议确认弹窗同意 → 完善头像昵称（可跳过）→ 首页领任务 → 逐条录音 → 一键提交 → 后台 `speakers`/`recordings` 表出现数据（含头像昵称/画像）→ 后台审核（通过/驳回）→ 首页进度更新 → `/media` 可试听 → 审核通过后导出数据集（manifest 含画像列）。
