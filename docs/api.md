@@ -999,9 +999,9 @@ JWT（HS256）内包含：
 
 ## 11. health — 健康检查
 
-`GET /api/health`
+`GET /api/health`（也支持 `HEAD`，返回 200 + 空 body，供 UptimeRobot 等默认发 HEAD 的监控器使用）
 
-**响应 200**：`{"status": "ok"}`。无需认证。
+**响应 200**：`{"status": "ok", "db": true, "version": "1"}`；DB 不可达时 `503` + `{"status": "degraded", "db": false}`。无需认证。
 
 ---
 

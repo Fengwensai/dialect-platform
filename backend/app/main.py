@@ -62,10 +62,13 @@ MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 def health():
     """健康检查：探测数据库连通性。DB 正常返回 200 + db:true；DB 挂返回 503 + db:false。
-    供服务器自愈监控（scripts/monitor.sh）与外部探活（UptimeRobot 等）使用。"""
+    供服务器自愈监控（scripts/monitor.sh）与外部探活（UptimeRobot 等）使用。
+
+    显式声明 HEAD：FastAPI 的 APIRoute 不会像 Starlette 那样为 GET 自动补 HEAD，
+    而 UptimeRobot 的 HTTP(s) 监控默认发 HEAD，缺了会收到 405 而被误判为宕机。"""
     db_ok = True
     try:
         with SessionLocal() as s:

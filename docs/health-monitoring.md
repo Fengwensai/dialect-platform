@@ -83,6 +83,8 @@ tail -50 /var/log/dialect-monitor.log         # 看最近探测
    - URL：`https://api.qlzby.com/api/health`
    - Interval：`5 分钟`（默认即可）
    - **Advanced → Alert When Down, resumes from**: `200-299`（默认 200 即可）
+   - 该端点 **GET / HEAD 都支持**（HEAD 返回 200 + 空 body）；UptimeRobot 默认发 HEAD，若监控报
+     **405 Method Not Allowed**，说明后端早于本次修复（`main.py` 已显式声明 `methods=["GET", "HEAD"]`），重新部署后端即可。
 3. **Contact / Alert Contacts**：至少加一个邮箱（监控红时发邮件）
 4. 创建后状态应立即 **UP**。验证：手动 `ssh root@182.92.9.204 "sudo systemctl stop dialect-api"`，
    2 分钟内 UptimeRobot 应变 **DOWN** 并收到邮件；然后 `start` 恢复 UP。
